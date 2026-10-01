@@ -95,7 +95,7 @@
         return;
       }
 
-      window.location.href = 'index.html#studentDashboard';
+      window.location.href = `index.html?role=${encodeURIComponent(loginData.user.role)}#dashboard`;
     } catch (error) {
       loginStatus.textContent = window.location.protocol === 'file:'
         ? 'This page is opened from your computer. Open it through your hosted site to log in.'

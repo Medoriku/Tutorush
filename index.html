@@ -1795,15 +1795,26 @@
 			updateProfileUI();
 		}
 
+		function openRoleDashboard(role) {
+			if (role === 'tutor' || role === 'admin') {
+				btnTutorMode.click();
+				if (role === 'admin') adminPanel.hidden = false;
+				return;
+			}
+			btnStudentMode.click();
+			studentDashboard.hidden = false;
+		}
+
 		async function restoreSession() {
 			try {
 				const result = await tutorApi('session');
 				csrfToken = result.csrfToken || '';
 				if (result.user) {
 					activateSignedInUI(result.user);
+					openRoleDashboard(result.user.role);
 					if (currentUserIsAdmin) loadAdminDashboard();
-					if (window.location.hash === '#studentDashboard') {
-						setTimeout(() => studentDashboard.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+					if (window.location.hash === '#dashboard' || window.location.hash === '#studentDashboard') {
+						setTimeout(() => (result.user.role === 'student' ? studentDashboard : tutorView).scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
 					}
 				}
 				return result;

@@ -153,13 +153,75 @@ try {
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE COLLATE NOCASE,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT \'student\' CHECK(role IN (\'student\', \'admin\')),
+        role TEXT NOT NULL DEFAULT \'student\' CHECK(role IN (\'student\', \'tutor\', \'both\', \'admin\')),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
     $userColumns = $database->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('role', $userColumns, true)) {
         $database->exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'student'");
     }
+    $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
+    if (!str_contains($userTableSql, "'tutor'")) {
+        $database->exec('PRAGMA foreign_keys = OFF');
+        $database->exec('ALTER TABLE users RENAME TO users_before_tutor_role');
+        $database->exec("CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'admin')),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )");
+        $database->exec('INSERT INTO users (id, name, email, password_hash, role, created_at) SELECT id, name, email, password_hash, role, created_at FROM users_before_tutor_role');
+        $database->exec('DROP TABLE users_before_tutor_role');
+        $database->exec('PRAGMA foreign_keys = ON');
+    }
+    $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
+    if (!str_contains($userTableSql, "'both'")) {
+        $database->exec('PRAGMA foreign_keys = OFF');
+        $database->exec('ALTER TABLE users RENAME TO users_before_both_role');
+        $database->exec("CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'both', 'admin')),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )");
+        $database->exec('INSERT INTO users (id, name, email, password_hash, role, created_at) SELECT id, name, email, password_hash, role, created_at FROM users_before_both_role');
+        $database->exec('DROP TABLE users_before_both_role');
+        $database->exec('PRAGMA foreign_keys = ON');
+    }
+    $dependentTableDefinitions = [
+        'bookings' => [
+            'CREATE TABLE bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, tutor_name TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN (\'immediate\', \'plan\')), status TEXT NOT NULL, scheduled_for TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_id) REFERENCES users(id))',
+            'id, student_id, tutor_name, mode, status, scheduled_for, created_at',
+        ],
+        'messages' => [
+            'CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, tutor_name TEXT NOT NULL, sender TEXT NOT NULL CHECK(sender IN (\'student\', \'tutor\')), body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))',
+            'id, user_id, tutor_name, sender, body, created_at',
+        ],
+        'availability' => [
+            'CREATE TABLE availability (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, scheduled_for TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))',
+            'id, user_id, scheduled_for, created_at',
+        ],
+        'password_resets' => [
+            'CREATE TABLE password_resets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, used_at INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))',
+            'id, user_id, token_hash, expires_at, used_at, created_at',
+        ],
+    ];
+    $database->exec('PRAGMA foreign_keys = OFF');
+    foreach ($dependentTableDefinitions as $tableName => [$createSql, $columns]) {
+        $tableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '$tableName'")->fetchColumn();
+        if ($tableSql !== '' && (str_contains($tableSql, 'users_before_tutor_role') || str_contains($tableSql, 'users_before_both_role'))) {
+            $legacyTable = $tableName . '_before_role_repair';
+            $database->exec("ALTER TABLE $tableName RENAME TO $legacyTable");
+            $database->exec($createSql);
+            $database->exec("INSERT INTO $tableName ($columns) SELECT $columns FROM $legacyTable");
+            $database->exec("DROP TABLE $legacyTable");
+        }
+    }
+    $database->exec('PRAGMA foreign_keys = ON');
     $promoteAdmin = $database->prepare('UPDATE users SET role = \'admin\' WHERE email = ?');
     $promoteAdmin->execute([ADMIN_EMAIL]);
     $database->exec('CREATE TABLE IF NOT EXISTS bookings (
@@ -243,7 +305,11 @@ try {
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254 || strlen($password) < 8 || strlen($password) > 128) {
             respond(422, ['error' => 'Provide a name, valid email, and password of at least 8 characters.']);
         }
-        $role = $email === ADMIN_EMAIL ? 'admin' : 'student';
+        $requestedRole = $request['role'] ?? 'student';
+        if (!in_array($requestedRole, ['student', 'tutor', 'both'], true)) {
+            $requestedRole = 'student';
+        }
+        $role = $email === ADMIN_EMAIL ? 'admin' : $requestedRole;
         try {
             $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)');
             $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
