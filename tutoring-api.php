@@ -300,7 +300,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -345,6 +345,26 @@ try {
         $delete = $database->prepare('DELETE FROM email_verifications WHERE user_id = ?');
         $delete->execute([(int) $verification['user_id']]);
         respond(200, ['message' => 'Your email is confirmed. You can log in now.']);
+    }
+
+    if ($action === 'resend-verification') {
+        $email = strtolower(trim((string) ($request['email'] ?? '')));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254) {
+            respond(422, ['error' => 'Provide a valid email address.']);
+        }
+        $statement = $database->prepare('SELECT id, name, email, email_verified_at FROM users WHERE email = ?');
+        $statement->execute([$email]);
+        $user = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$user || !empty($user['email_verified_at'])) {
+            respond(200, ['message' => 'If the account needs confirmation, a new email has been sent.']);
+        }
+        $database->prepare('DELETE FROM email_verifications WHERE user_id = ?')->execute([(int) $user['id']]);
+        $token = bin2hex(random_bytes(32));
+        $database->prepare('INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, ?)')->execute([(int) $user['id'], hash('sha256', $token), time() + 86400]);
+        if (!sendVerificationEmail($user['email'], $user['name'], $token)) {
+            respond(500, ['error' => 'We could not send the confirmation email. Contact support.']);
+        }
+        respond(200, ['message' => 'A new confirmation email has been sent.']);
     }
 
     requireCsrfToken();

@@ -34,6 +34,8 @@
     .google-status { min-height:1.2rem; margin:.7rem 0 0; color:#756d87; text-align:center; font-size:.78rem; }
     .signup-status { min-height:1.4rem; margin:1rem 0 0; color:#9b3f62; line-height:1.4; font-size:.85rem; }
     .signup-status a { color:var(--ink); font-weight:700; }
+    .resend-button { display:none; width:100%; margin-top:.6rem; padding:.7rem 1rem; border:1px solid var(--ink); border-radius:999px; background:var(--blue); color:var(--ink); box-shadow:.1rem .1rem 0 rgba(23,23,22,.45); cursor:pointer; font:500 .8rem "DM Mono",monospace; }
+    .resend-button.visible { display:block; }
   </style>
 </head>
 <body>
@@ -54,11 +56,14 @@
       <button type="submit">create account</button>
     </form>
     <p class="signup-status" id="signup-status" role="alert" aria-live="polite"></p>
+    <button class="resend-button" id="resend-confirmation" type="button">resend confirmation email</button>
     <p class="alternate">Already have an account? <a href="login.html">Log in.</a></p>
   </main>
   <script>
     const signupForm = document.getElementById('signup-form');
     const signupStatus = document.getElementById('signup-status');
+    const resendButton = document.getElementById('resend-confirmation');
+    const showResend = () => resendButton.classList.add('visible');
     signupForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -90,10 +95,12 @@
           signupStatus.innerHTML = signupResponse.status === 409
             ? 'An account already exists for that email. <a href="login.html">Log in here.</a>'
             : (signupData.error || 'We could not create your account. Please try again.');
+          if (signupResponse.status === 409) showResend();
           return;
         }
 
         signupStatus.textContent = signupData.message || 'Account created. Check your email to confirm your account.';
+        showResend();
       } catch (error) {
         signupStatus.textContent = window.location.protocol === 'file:'
           ? 'This page is opened from your computer. Open it through your hosted site to create an account.'
@@ -101,6 +108,23 @@
       } finally {
         submitButton.disabled = false;
         submitButton.textContent = 'create account';
+      }
+    });
+
+    resendButton.addEventListener('click', async () => {
+      const email = signupForm.elements.email.value.trim();
+      if (!email) { signupStatus.textContent = 'Enter your email first.'; return; }
+      resendButton.disabled = true;
+      resendButton.textContent = 'sending...';
+      try {
+        const response = await fetch('tutoring-api.php?action=resend-verification', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ action:'resend-verification', email }) });
+        const data = await response.json();
+        signupStatus.textContent = data.message || data.error || 'Check your email for the confirmation link.';
+      } catch (error) {
+        signupStatus.textContent = 'We could not reach TutorRush. Please try again.';
+      } finally {
+        resendButton.disabled = false;
+        resendButton.textContent = 'resend confirmation email';
       }
     });
   </script>
