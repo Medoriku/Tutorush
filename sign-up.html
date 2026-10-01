@@ -50,7 +50,7 @@
       <input type="hidden" name="name" id="full-name">
       <label>Email<input type="email" name="email" autocomplete="email" required></label>
       <label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
-      <label>Account type<select name="role"><option value="student">Student</option><option value="tutor">Tutor</option><option value="both">Student + tutor</option></select></label>
+      <label>Platform access<select name="role"><option value="student">Student</option><option value="tutor">Tutor</option><option value="both">Student + tutor</option></select></label>
       <button type="submit">create account</button>
     </form>
     <p class="signup-status" id="signup-status" role="alert" aria-live="polite"></p>
@@ -59,7 +59,6 @@
   <script>
     const signupForm = document.getElementById('signup-form');
     const signupStatus = document.getElementById('signup-status');
-
     signupForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -94,8 +93,7 @@
           return;
         }
 
-        const dashboardByRole = { student: 'student-dashboard.html', tutor: 'tutor-dashboard.html', both: 'student-dashboard.html', admin: 'admin-dashboard.html' };
-        window.location.href = dashboardByRole[signupData.user.role] || 'student-dashboard.html';
+        signupStatus.textContent = signupData.message || 'Account created. Check your email to confirm your account.';
       } catch (error) {
         signupStatus.textContent = window.location.protocol === 'file:'
           ? 'This page is opened from your computer. Open it through your hosted site to create an account.'

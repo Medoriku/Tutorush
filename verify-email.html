@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirm Email | TutorRush</title>
+  <style>
+    :root{--ink:#2d2443;--yellow:#fff08e;--green:#d6fa99}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;color:var(--ink);font-family:Arial,sans-serif;background:linear-gradient(120deg,#ffeaf4,#f6ebff 48%,#e5f7ca)}main{width:min(100% - 2.5rem,480px);padding:2rem;border:1px solid #fff;border-radius:1.5rem;background:#ffffffaa;box-shadow:0 1rem 2.5rem #69509920;text-align:center}h1{margin:0;font-size:clamp(2.6rem,8vw,5rem);line-height:.9;letter-spacing:-.06em}p{line-height:1.5}.status{min-height:1.5rem;color:#9b3f62}a{display:inline-block;margin-top:1rem;padding:.8rem 1.1rem;border:1px solid var(--ink);border-radius:999px;background:var(--yellow);color:var(--ink);text-decoration:none;font-weight:700}
+  </style>
+</head>
+<body><main><h1>confirm your<br>email.</h1><p id="status">Checking your confirmation link...</p><a href="login.html">Go to log in</a></main><script>
+const token=new URLSearchParams(location.search).get('token');const status=document.getElementById('status');if(!token){status.textContent='This confirmation link is missing.'}else{fetch('tutoring-api.php?action=verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'verify-email',token})}).then(response=>response.json().then(data=>({ok:response.ok,data}))).then(({ok,data})=>{status.textContent=ok?(data.message||'Your email is confirmed.'):data.error||'This confirmation link is invalid or expired.'}).catch(()=>{status.textContent='We could not reach TutorRush. Please try again.'})}
+</script></body></html>

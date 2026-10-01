@@ -117,6 +117,32 @@ function sendPasswordResetEmail(string $email, string $name, string $token): boo
     }
 }
 
+function sendVerificationEmail(string $email, string $name, string $token): bool {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8080';
+    $verifyUrl = $scheme . '://' . $host . '/verify-email.html?token=' . rawurlencode($token);
+    $smtpHost = getenv('TUTORUSH_SMTP_HOST') ?: (defined('TUTORUSH_SMTP_HOST') ? TUTORUSH_SMTP_HOST : 'smtp.hostinger.com');
+    $smtpPort = (int) (getenv('TUTORUSH_SMTP_PORT') ?: (defined('TUTORUSH_SMTP_PORT') ? TUTORUSH_SMTP_PORT : 465));
+    $smtpUsername = getenv('TUTORUSH_SMTP_USERNAME') ?: (defined('TUTORUSH_SMTP_USERNAME') ? TUTORUSH_SMTP_USERNAME : 'info@tutorush.com');
+    $smtpPassword = getenv('TUTORUSH_SMTP_PASSWORD') ?: (defined('TUTORUSH_SMTP_PASSWORD') ? TUTORUSH_SMTP_PASSWORD : null);
+    $fromEmail = getenv('TUTORUSH_MAIL_FROM') ?: (defined('TUTORUSH_MAIL_FROM') ? TUTORUSH_MAIL_FROM : $smtpUsername);
+    $fromName = getenv('TUTORUSH_MAIL_FROM_NAME') ?: (defined('TUTORUSH_MAIL_FROM_NAME') ? TUTORUSH_MAIL_FROM_NAME : 'TutorRush');
+    if (!$smtpPassword) {
+        debugLog('verification_mail_failed', ['reason' => 'TUTORUSH_SMTP_PASSWORD is not configured']);
+        return false;
+    }
+    try {
+        $mailer = new PHPMailer\PHPMailer\PHPMailer(true);
+        $mailer->isSMTP(); $mailer->Host = $smtpHost; $mailer->SMTPAuth = true; $mailer->Username = $smtpUsername; $mailer->Password = $smtpPassword;
+        $mailer->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS; $mailer->Port = $smtpPort; $mailer->CharSet = 'UTF-8';
+        $mailer->setFrom($fromEmail, $fromName); $mailer->addAddress($email, $name); $mailer->Subject = 'Confirm your TutorRush account';
+        $mailer->Body = "Hi $name,\n\nConfirm your TutorRush account by clicking this link:\n$verifyUrl\n\nThis link expires in 24 hours.\n";
+        $mailer->send(); return true;
+    } catch (Throwable $exception) {
+        debugLog('verification_mail_failed', ['reason' => $exception->getMessage()]); return false;
+    }
+}
+
 function requireUserId(): int {
     if (!isset($_SESSION['tutorrush_user_id'])) {
         respond(401, ['error' => 'Please log in first.']);
@@ -159,6 +185,10 @@ try {
     $userColumns = $database->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('role', $userColumns, true)) {
         $database->exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'student'");
+    }
+    if (!in_array('email_verified_at', $userColumns, true)) {
+        $database->exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
+        $database->exec("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE email_verified_at IS NULL");
     }
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
@@ -259,11 +289,18 @@ try {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )');
-
+    $database->exec('CREATE TABLE IF NOT EXISTS email_verifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )');
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -296,6 +333,20 @@ try {
         respond(200, ['message' => 'If an account exists for that email, a reset link has been sent.']);
     }
 
+    if ($action === 'verify-email') {
+        $token = trim((string) ($request['token'] ?? ''));
+        if (!preg_match('/^[a-f0-9]{64}$/', $token)) respond(422, ['error' => 'This confirmation link is invalid.']);
+        $statement = $database->prepare('SELECT id, user_id FROM email_verifications WHERE token_hash = ? AND expires_at > ?');
+        $statement->execute([hash('sha256', $token), time()]);
+        $verification = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$verification) respond(400, ['error' => 'This confirmation link is invalid or expired.']);
+        $update = $database->prepare('UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE id = ?');
+        $update->execute([(int) $verification['user_id']]);
+        $delete = $database->prepare('DELETE FROM email_verifications WHERE user_id = ?');
+        $delete->execute([(int) $verification['user_id']]);
+        respond(200, ['message' => 'Your email is confirmed. You can log in now.']);
+    }
+
     requireCsrfToken();
 
     if ($action === 'signup') {
@@ -311,16 +362,22 @@ try {
         }
         $role = $email === ADMIN_EMAIL ? 'admin' : $requestedRole;
         try {
-            $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)');
+            $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at) VALUES (?, ?, ?, ?, NULL)');
             $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
         } catch (PDOException $exception) {
             if ((int) $exception->getCode() === 23000) respond(409, ['error' => 'An account with that email already exists.']);
             throw $exception;
         }
-        session_regenerate_id(true);
-        $_SESSION['tutorrush_user_id'] = (int) $database->lastInsertId();
-        $_SESSION['tutorrush_role'] = $role;
-        respond(201, ['user' => userPayload(['id' => $_SESSION['tutorrush_user_id'], 'name' => $name, 'email' => $email, 'role' => $role])]);
+        $userId = (int) $database->lastInsertId();
+        $token = bin2hex(random_bytes(32));
+        $verification = $database->prepare('INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, ?)');
+        $verification->execute([$userId, hash('sha256', $token), time() + 86400]);
+        if (!sendVerificationEmail($email, $name, $token)) {
+            $database->prepare('DELETE FROM email_verifications WHERE user_id = ?')->execute([$userId]);
+            $database->prepare('DELETE FROM users WHERE id = ?')->execute([$userId]);
+            respond(500, ['error' => 'Your account was created, but the confirmation email could not be sent. Contact support.']);
+        }
+        respond(201, ['message' => 'Account created. Check your email to confirm your account.']);
     }
 
     if ($action === 'login') {
@@ -332,6 +389,9 @@ try {
         $user = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
             respond(404, ['error' => 'No account exists for that email address.']);
+        }
+        if (empty($user['email_verified_at'])) {
+            respond(403, ['error' => 'Please confirm your email before logging in. Check your inbox for the confirmation link.']);
         }
         if (!password_verify($password, $user['password_hash'])) {
             respond(401, ['error' => 'That email is registered, but the password is incorrect.']);
@@ -433,7 +493,7 @@ try {
         }
         $database->beginTransaction();
         try {
-            foreach (['password_resets' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id'] as $table => $column) {
+            foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id'] as $table => $column) {
                 $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");
                 $statement->execute([$userId]);
             }
