@@ -4,7 +4,6 @@
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta name="description" content="TutorRush is a friendly on-demand tutoring platform for students and tutors, featuring school-specific course prep." />
-	<meta http-equiv="refresh" content="0; url=student-landing.html" />
 	<title>TutorRush | Find Your Tutor</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1816,6 +1815,8 @@
 					if (window.location.hash === '#dashboard' || window.location.hash === '#studentDashboard') {
 						setTimeout(() => (result.user.role === 'student' ? studentDashboard : tutorView).scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
 					}
+				} else if (!window.location.hash) {
+					window.location.replace('student-landing.html');
 				}
 				return result;
 			} catch (error) {
