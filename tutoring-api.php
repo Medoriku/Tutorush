@@ -252,7 +252,7 @@ try {
         }
     }
     $database->exec('PRAGMA foreign_keys = ON');
-    $promoteAdmin = $database->prepare('UPDATE users SET role = \'admin\' WHERE email = ?');
+    $promoteAdmin = $database->prepare('UPDATE users SET role = \'admin\', email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP) WHERE email = ?');
     $promoteAdmin->execute([ADMIN_EMAIL]);
     $database->exec('CREATE TABLE IF NOT EXISTS bookings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
