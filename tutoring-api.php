@@ -180,6 +180,8 @@ try {
         email TEXT NOT NULL UNIQUE COLLATE NOCASE,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT \'student\' CHECK(role IN (\'student\', \'tutor\', \'both\', \'admin\')),
+        is_online INTEGER NOT NULL DEFAULT 0,
+        email_verified_at TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
     $userColumns = $database->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_COLUMN, 1);
@@ -190,6 +192,9 @@ try {
         $database->exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
         $database->exec("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE email_verified_at IS NULL");
     }
+    if (!in_array('is_online', $userColumns, true)) {
+        $database->exec('ALTER TABLE users ADD COLUMN is_online INTEGER NOT NULL DEFAULT 0');
+    }
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
         $database->exec('PRAGMA foreign_keys = OFF');
@@ -199,7 +204,9 @@ try {
             name TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE COLLATE NOCASE,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'admin')),
+            role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'both', 'admin')),
+            is_online INTEGER NOT NULL DEFAULT 0,
+            email_verified_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
         $database->exec('INSERT INTO users (id, name, email, password_hash, role, created_at) SELECT id, name, email, password_hash, role, created_at FROM users_before_tutor_role');
@@ -216,6 +223,8 @@ try {
             email TEXT NOT NULL UNIQUE COLLATE NOCASE,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'both', 'admin')),
+            is_online INTEGER NOT NULL DEFAULT 0,
+            email_verified_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
         $database->exec('INSERT INTO users (id, name, email, password_hash, role, created_at) SELECT id, name, email, password_hash, role, created_at FROM users_before_both_role');
@@ -300,7 +309,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'find-online-tutor', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -442,6 +451,29 @@ try {
         $used = $database->prepare('UPDATE password_resets SET used_at = ? WHERE id = ?');
         $used->execute([time(), (int) $reset['id']]);
         respond(200, ['message' => 'Your password has been reset. You can log in now.']);
+    }
+
+    if ($action === 'set-tutor-status') {
+        $userId = requireUserId();
+        $status = filter_var($request['online'] ?? false, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $userStatement = $database->prepare('SELECT role FROM users WHERE id = ?');
+        $userStatement->execute([$userId]);
+        $role = $userStatement->fetchColumn();
+        if (!in_array($role, ['tutor', 'both', 'admin'], true) || $status === null) {
+            respond(403, ['error' => 'Tutor access is required.']);
+        }
+        $statement = $database->prepare('UPDATE users SET is_online = ? WHERE id = ?');
+        $statement->execute([$status ? 1 : 0, $userId]);
+        respond(200, ['online' => (bool) $status]);
+    }
+
+    if ($action === 'find-online-tutor') {
+        $userId = requireUserId();
+        $statement = $database->prepare("SELECT id, name, role FROM users WHERE id != ? AND is_online = 1 AND role IN ('tutor', 'both') ORDER BY RANDOM() LIMIT 1");
+        $statement->execute([$userId]);
+        $tutor = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$tutor) respond(404, ['error' => 'No tutors are online right now. Try again soon.']);
+        respond(200, ['tutor' => ['id' => (int) $tutor['id'], 'name' => $tutor['name'], 'role' => $tutor['role']]]);
     }
 
     if ($action === 'booking') {
