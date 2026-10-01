@@ -298,6 +298,18 @@ try {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )');
+    $database->exec('CREATE TABLE IF NOT EXISTS match_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL,
+        tutor_id INTEGER NOT NULL,
+        help_type TEXT NOT NULL,
+        duration INTEGER NOT NULL,
+        note TEXT,
+        status TEXT NOT NULL DEFAULT \'pending\',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(student_id) REFERENCES users(id),
+        FOREIGN KEY(tutor_id) REFERENCES users(id)
+    )');
     $database->exec('CREATE TABLE IF NOT EXISTS email_verifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -309,7 +321,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'find-online-tutor', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'find-online-tutor', 'tutor-requests', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -469,11 +481,26 @@ try {
 
     if ($action === 'find-online-tutor') {
         $userId = requireUserId();
+        $helpType = validateText($request['helpType'] ?? '', 60, 'Help type');
+        $duration = filter_var($request['duration'] ?? null, FILTER_VALIDATE_INT);
+        $note = trim((string) ($request['note'] ?? ''));
+        if (!$duration || !in_array($duration, [30, 60, 90, 120], true) || mb_strlen($note) > 500) {
+            respond(422, ['error' => 'Choose a valid session duration and keep your note under 500 characters.']);
+        }
         $statement = $database->prepare("SELECT id, name, role FROM users WHERE id != ? AND is_online = 1 AND role IN ('tutor', 'both') ORDER BY RANDOM() LIMIT 1");
         $statement->execute([$userId]);
         $tutor = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$tutor) respond(404, ['error' => 'No tutors are online right now. Try again soon.']);
-        respond(200, ['tutor' => ['id' => (int) $tutor['id'], 'name' => $tutor['name'], 'role' => $tutor['role']]]);
+        $requestInsert = $database->prepare('INSERT INTO match_requests (student_id, tutor_id, help_type, duration, note) VALUES (?, ?, ?, ?, ?)');
+        $requestInsert->execute([$userId, (int) $tutor['id'], $helpType, $duration, $note ?: null]);
+        respond(200, ['tutor' => ['id' => (int) $tutor['id'], 'name' => $tutor['name'], 'role' => $tutor['role']], 'request' => ['id' => (int) $database->lastInsertId(), 'helpType' => $helpType, 'duration' => $duration, 'note' => $note]]);
+    }
+
+    if ($action === 'tutor-requests') {
+        $userId = requireUserId();
+        $statement = $database->prepare("SELECT m.id, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' ORDER BY m.id DESC");
+        $statement->execute([$userId]);
+        respond(200, ['requests' => $statement->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     if ($action === 'booking') {
