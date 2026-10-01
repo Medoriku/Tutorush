@@ -162,6 +162,7 @@ function userPayload(array $user): array {
         'name' => $user['name'],
         'email' => $user['email'],
         'role' => $user['role'],
+        'availabilityStatus' => $user['availability_status'] ?? ((int) ($user['is_online'] ?? 0) ? 'online' : 'offline'),
     ];
 }
 
@@ -181,6 +182,7 @@ try {
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT \'student\' CHECK(role IN (\'student\', \'tutor\', \'both\', \'admin\')),
         is_online INTEGER NOT NULL DEFAULT 0,
+        availability_status TEXT NOT NULL DEFAULT \'offline\',
         email_verified_at TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
@@ -194,6 +196,10 @@ try {
     }
     if (!in_array('is_online', $userColumns, true)) {
         $database->exec('ALTER TABLE users ADD COLUMN is_online INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!in_array('availability_status', $userColumns, true)) {
+        $database->exec("ALTER TABLE users ADD COLUMN availability_status TEXT NOT NULL DEFAULT 'offline'");
+        $database->exec("UPDATE users SET availability_status = CASE WHEN is_online = 1 THEN 'online' ELSE 'offline' END");
     }
     if (!in_array('tutor_subjects', $userColumns, true)) {
         $database->exec("ALTER TABLE users ADD COLUMN tutor_subjects TEXT NOT NULL DEFAULT ''");
@@ -209,6 +215,7 @@ try {
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'both', 'admin')),
             is_online INTEGER NOT NULL DEFAULT 0,
+            availability_status TEXT NOT NULL DEFAULT 'offline',
             email_verified_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
@@ -227,6 +234,7 @@ try {
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student', 'tutor', 'both', 'admin')),
             is_online INTEGER NOT NULL DEFAULT 0,
+            availability_status TEXT NOT NULL DEFAULT 'offline',
             email_verified_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
@@ -336,7 +344,7 @@ try {
     if ($action === 'session') {
         $user = null;
         if (isset($_SESSION['tutorrush_user_id'])) {
-            $statement = $database->prepare('SELECT id, name, email, role FROM users WHERE id = ?');
+            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status FROM users WHERE id = ?');
             $statement->execute([(int) $_SESSION['tutorrush_user_id']]);
             $user = $statement->fetch(PDO::FETCH_ASSOC) ?: null;
         }
@@ -433,7 +441,7 @@ try {
         $email = strtolower(trim((string) ($request['email'] ?? '')));
         $password = (string) ($request['password'] ?? '');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) > 128) respond(422, ['error' => 'Provide a valid email and password.']);
-        $statement = $database->prepare('SELECT id, name, email, password_hash, role, email_verified_at FROM users WHERE email = ?');
+        $statement = $database->prepare('SELECT id, name, email, password_hash, role, email_verified_at, availability_status FROM users WHERE email = ?');
         $statement->execute([$email]);
         $user = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
@@ -482,9 +490,10 @@ try {
         if (!in_array($role, ['tutor', 'both', 'admin'], true) || $status === null) {
             respond(403, ['error' => 'Tutor access is required.']);
         }
-        $statement = $database->prepare('UPDATE users SET is_online = ? WHERE id = ?');
-        $statement->execute([$status ? 1 : 0, $userId]);
-        respond(200, ['online' => (bool) $status]);
+        $availabilityStatus = $status ? 'online' : 'offline';
+        $statement = $database->prepare('UPDATE users SET is_online = ?, availability_status = ? WHERE id = ?');
+        $statement->execute([$status ? 1 : 0, $availabilityStatus, $userId]);
+        respond(200, ['online' => (bool) $status, 'status' => $availabilityStatus]);
     }
 
     if ($action === 'set-tutor-subjects') {
@@ -506,7 +515,7 @@ try {
         if (!$duration || !in_array($duration, [30, 60, 90, 120], true) || mb_strlen($note) > 500) {
             respond(422, ['error' => 'Choose a valid session duration and keep your note under 500 characters.']);
         }
-        $statement = $database->prepare("SELECT id, name, role, tutor_subjects FROM users WHERE id != ? AND is_online = 1 AND role IN ('tutor', 'both') ORDER BY RANDOM()");
+        $statement = $database->prepare("SELECT id, name, role, tutor_subjects FROM users WHERE id != ? AND availability_status = 'online' AND role IN ('tutor', 'both') ORDER BY RANDOM()");
         $statement->execute([$userId]);
         $tutor = null;
         foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
@@ -533,6 +542,7 @@ try {
         $statement = $database->prepare("UPDATE match_requests SET status = 'accepted' WHERE id = ? AND tutor_id = ? AND status = 'pending'");
         $statement->execute([$requestId, $tutorId]);
         if ($statement->rowCount() === 0) respond(404, ['error' => 'This offer is no longer available.']);
+        $database->prepare("UPDATE users SET is_online = 0, availability_status = 'busy' WHERE id = ?")->execute([$tutorId]);
         $details = $database->prepare('SELECT m.id, m.subject, m.help_type, m.duration, m.note, s.name AS student_name, t.name AS tutor_name FROM match_requests m JOIN users s ON s.id = m.student_id JOIN users t ON t.id = m.tutor_id WHERE m.id = ?');
         $details->execute([$requestId]);
         respond(200, ['request' => $details->fetch(PDO::FETCH_ASSOC)]);
