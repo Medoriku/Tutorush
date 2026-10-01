@@ -329,7 +329,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'match-request-status', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -524,6 +524,29 @@ try {
         $statement = $database->prepare("SELECT m.id, m.subject, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' ORDER BY m.id DESC");
         $statement->execute([$userId]);
         respond(200, ['requests' => $statement->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    if ($action === 'accept-match-request') {
+        $tutorId = requireUserId();
+        $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
+        $statement = $database->prepare("UPDATE match_requests SET status = 'accepted' WHERE id = ? AND tutor_id = ? AND status = 'pending'");
+        $statement->execute([$requestId, $tutorId]);
+        if ($statement->rowCount() === 0) respond(404, ['error' => 'This offer is no longer available.']);
+        $details = $database->prepare('SELECT m.id, m.subject, m.help_type, m.duration, m.note, s.name AS student_name, t.name AS tutor_name FROM match_requests m JOIN users s ON s.id = m.student_id JOIN users t ON t.id = m.tutor_id WHERE m.id = ?');
+        $details->execute([$requestId]);
+        respond(200, ['request' => $details->fetch(PDO::FETCH_ASSOC)]);
+    }
+
+    if ($action === 'match-request-status') {
+        $studentId = requireUserId();
+        $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
+        $statement = $database->prepare('SELECT m.id, m.status, m.subject, m.help_type, m.duration, m.note, t.name AS tutor_name FROM match_requests m JOIN users t ON t.id = m.tutor_id WHERE m.id = ? AND m.student_id = ?');
+        $statement->execute([$requestId, $studentId]);
+        $match = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$match) respond(404, ['error' => 'Match request not found.']);
+        respond(200, ['request' => $match]);
     }
 
     if ($action === 'booking') {
