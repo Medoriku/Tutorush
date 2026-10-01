@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log In | TutorRush</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Fredoka:wght@500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&display=swap" rel="stylesheet">
+  <style>
+    :root { --ink:#171716; --paper:#fffdf9; --lemon:#ffe64c; --lilac:#e2c8ff; --line:#171716; }
+    * { box-sizing:border-box; } body { margin:0; min-height:100vh; color:var(--ink); background:radial-gradient(circle at 20% 15%, #e2c8ff, transparent 25%), radial-gradient(circle at 85% 85%, #ffd7e9, transparent 28%), var(--paper); font-family:"DM Sans", sans-serif; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:1rem; width:min(1120px,calc(100% - 2.5rem)); margin:1rem auto; padding:.55rem .7rem .55rem 1rem; border:1px solid rgba(255,255,255,.82); border-radius:999px; background:rgba(255,255,255,.64); box-shadow:0 .65rem 1.75rem rgba(105,77,148,.12); backdrop-filter:blur(14px); } .wordmark { display:inline-flex; align-items:center; gap:.65rem; color:inherit; font:600 1.18rem "Fredoka",sans-serif; letter-spacing:.01em; text-decoration:none; }.logo { display:grid; width:2.7rem; height:2.7rem; place-items:center; border-radius:.75rem; color:white; background:linear-gradient(135deg,#ffb8d9,#dccbff 48%,#bbd4ff); box-shadow:0 .45rem 1.2rem rgba(129,102,188,.24); font:800 1.2rem/1 "DM Sans",sans-serif; letter-spacing:-.12em; }.brand-name { color:#5f4b86; text-shadow:1px 1px 0 rgba(255,255,255,.9); }nav { display:flex; align-items:center; gap:.28rem; padding:.2rem; border-radius:999px; background:rgba(220,203,255,.48); }nav a { padding:.52rem .8rem; border:1px solid transparent; border-radius:999px; font:500 .82rem "DM Mono",monospace; text-decoration:none; transition:transform .18s ease,background .18s ease,box-shadow .18s ease; }nav a:hover,nav a[aria-current="page"] { background:white; box-shadow:0 .2rem .55rem rgba(105,77,148,.13); transform:translateY(-1px); }nav .nav-signup { background:#d6fa99; box-shadow:.1rem .1rem 0 rgba(45,36,67,.45); }nav .nav-signup:hover { background:#fff08e; box-shadow:.04rem .04rem 0 rgba(45,36,67,.45); transform:translateY(-2px); }@media (max-width:720px) { header { width:min(100% - 1.5rem,1120px); margin:.75rem auto; padding:.45rem .5rem .45rem .7rem; }.wordmark { gap:.42rem; font-size:1rem; }nav { gap:.08rem; padding:.14rem; }nav a { padding:.42rem .48rem; font-size:.68rem; } }
+    main { width:min(100% - 2.5rem, 470px); margin:clamp(3rem, 10vh, 8rem) auto; } h1 { margin:0; font-size:clamp(3rem, 9vw, 5.4rem); line-height:.85; letter-spacing:-.07em; } h1 em { font-family:"Playfair Display",serif; } p { line-height:1.5; }
+    form { display:grid; gap:1rem; margin-top:2.5rem; padding-top:1.5rem; border-top:1px solid var(--line); } label { display:grid; gap:.45rem; font:500 .8rem "DM Mono",monospace; } input { width:100%; padding:.85rem .95rem; border:1px solid var(--line); border-radius:0; background:rgba(255,255,255,.8); font:1rem "DM Sans",sans-serif; } button { width:max-content; margin-top:.5rem; padding:.8rem 1.25rem; border:1px solid var(--line); border-radius:999px; background:var(--lemon); color:var(--ink); font:500 .95rem "DM Mono",monospace; cursor:pointer; transition:transform .18s ease,background .18s ease,box-shadow .18s ease; } button:hover { background:#d6fa99; box-shadow:.14rem .14rem 0 rgba(23,23,22,.45); transform:translateY(-2px); } .alternate { margin-top:1.4rem; } a { color:inherit; text-underline-offset:.25em; }
+    body { overflow-x:hidden; background:linear-gradient(120deg,#ffeaf4,#f6ebff 48%,#e5f7ca); background-size:160% 160%; animation:background-shift 16s ease-in-out infinite alternate; } body::before,body::after { position:fixed; z-index:-1; content:""; border-radius:50%; pointer-events:none; }body::before { width:16rem; height:16rem; top:16%; left:-5rem; background:rgba(255,240,142,.7); animation:float-one 12s ease-in-out infinite alternate; }body::after { width:13rem; height:13rem; right:-3rem; bottom:6%; background:rgba(187,212,255,.66); animation:float-two 10s ease-in-out infinite alternate; }header,main { position:relative; z-index:1; }main { padding:2rem; border:1px solid rgba(255,255,255,.78); border-radius:1.5rem; background:rgba(255,255,255,.52); box-shadow:0 1rem 2.5rem rgba(105,77,148,.12); backdrop-filter:blur(12px); }@keyframes background-shift { from { background-position:0% 30%; } to { background-position:100% 70%; } }@keyframes float-one { from { border-radius:50%; transform:translate(0,0) scale(1); } to { border-radius:43% 57% 49% 51%; transform:translate(2rem,1rem) scale(1.1); } }@keyframes float-two { from { border-radius:50%; transform:translate(0,0); } to { border-radius:59% 41% 47% 53%; transform:translate(-1rem,-2rem) scale(.9); } }@media (prefers-reduced-motion:reduce) { body,body::before,body::after { animation:none; } }
+    nav .nav-login { background:#ffb8d9; box-shadow:.1rem .1rem 0 rgba(45,36,67,.45); }
+    nav .nav-login:hover { background:#dccbff; box-shadow:.04rem .04rem 0 rgba(45,36,67,.45); transform:translateY(-2px); }
+    nav .nav-faq { background:#bbd4ff; box-shadow:.1rem .1rem 0 rgba(45,36,67,.45); }
+    nav .nav-faq:hover { background:#ffb8d9; box-shadow:.04rem .04rem 0 rgba(45,36,67,.45); transform:translateY(-2px); }
+    button { box-shadow:.1rem .1rem 0 rgba(23,23,22,.45); }
+    button:hover { background:#bbd4ff; box-shadow:.04rem .04rem 0 rgba(23,23,22,.45); transform:translateY(-2px); }
+    nav a:hover,nav a[aria-current="page"] { box-shadow:.04rem .04rem 0 rgba(45,36,67,.45); transform:translateY(-2px); }
+    nav a { border-color:#171716; }
+    nav { gap:.45rem; padding:0; border-radius:0; background:transparent; }
+    nav .nav-signup,nav .nav-signup:hover { background:#d6fa99; box-shadow:.1rem .1rem 0 rgba(45,36,67,.45); }
+    nav .nav-login,nav .nav-login:hover { background:#bbd4ff; box-shadow:.1rem .1rem 0 rgba(45,36,67,.45); }
+    nav .nav-faq,nav .nav-faq:hover { background:#ffb8d9; box-shadow:.1rem .1rem 0 rgba(45,36,67,.45); }
+    nav a:hover { box-shadow:.04rem .04rem 0 rgba(45,36,67,.45); transform:translateY(-2px); }
+    nav a[aria-current="page"],nav a[aria-current="page"]:hover { background:#fff08e !important; }
+    .google-button { display:flex; align-items:center; justify-content:center; gap:.65rem; width:100%; margin:2rem 0 1.35rem; padding:.82rem 1rem; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); box-shadow:.1rem .1rem 0 rgba(23,23,22,.45); cursor:pointer; font:500 .9rem "DM Mono",monospace; transition:transform .18s ease,background .18s ease,box-shadow .18s ease; }
+    .google-button:hover { background:var(--pink); transform:translateY(-2px); box-shadow:.04rem .04rem 0 rgba(23,23,22,.45); }
+    .google-mark { display:grid; width:1.25rem; height:1.25rem; place-items:center; border:1px solid #4285f4; border-radius:50%; color:#4285f4; font:700 .8rem Arial,sans-serif; }
+    .auth-divider { display:flex; align-items:center; gap:.75rem; color:#756d87; font:500 .7rem "DM Mono",monospace; text-transform:uppercase; }
+    .auth-divider::before,.auth-divider::after { content:""; height:1px; flex:1; background:var(--line); }
+    .google-status { min-height:1.2rem; margin:.7rem 0 0; color:#756d87; text-align:center; font-size:.78rem; }
+    .login-status { min-height:1.4rem; margin:1rem 0 0; color:#9b3f62; line-height:1.4; font-size:.85rem; }
+    .login-status a { color:var(--ink); font-weight:700; }
+    .forgot-link { display:block; margin-top:1rem; font-size:.85rem; text-underline-offset:.25em; }
+  </style>
+</head>
+<body>
+  <header><a class="wordmark" href="student-landing.html" aria-label="TutorRush home"><span class="logo" aria-hidden="true">TR</span><span class="brand-name">tutor rush</span></a><nav aria-label="Primary navigation"><a class="nav-signup" href="sign-up.html">sign up</a><a class="nav-login" href="login.html" aria-current="page">log in</a><a class="nav-faq" href="faq.html">FAQ</a></nav></header>
+  <main>
+    <h1>Welcome <em>back!</em></h1>
+    <p>Log in to pick up where you left off.</p>
+    <button class="google-button" type="button" id="google-login"><span class="google-mark" aria-hidden="true">G</span>Continue with Google</button>
+    <p class="google-status" id="google-status" aria-live="polite"></p>
+    <div class="auth-divider">or</div>
+    <form action="tutoring-api.php?action=login" method="post" id="login-form">
+      <label>Email<input type="email" name="email" autocomplete="email" required></label>
+      <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+      <button type="submit">log in</button>
+    </form>
+    <p class="login-status" id="login-status" role="alert" aria-live="polite"></p>
+    <a class="forgot-link" href="reset-password.html">Forgot your password?</a>
+    <p class="alternate">New here? <a href="sign-up.html">Create a student account.</a></p>
+  </main>
+</body>
+<script>
+  const loginForm = document.getElementById('login-form');
+  const loginStatus = document.getElementById('login-status');
+
+
+  loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submitButton = loginForm.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = 'checking...';
+    loginStatus.textContent = '';
+
+    try {
+      const sessionResponse = await fetch('tutoring-api.php?action=session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'session' })
+      });
+      const sessionData = await sessionResponse.json();
+      const formData = Object.fromEntries(new FormData(loginForm));
+      const loginResponse = await fetch('tutoring-api.php?action=login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': sessionData.csrfToken || ''
+        },
+        body: JSON.stringify({ action: 'login', ...formData })
+      });
+      const loginData = await loginResponse.json();
+
+      if (!loginResponse.ok) {
+        const accountHint = loginResponse.status === 404
+          ? 'No account was found for that email. <a href="sign-up.html">Sign up here.</a>'
+          : (loginData.error || 'We could not log you in. Please try again.');
+        loginStatus.innerHTML = accountHint;
+        return;
+      }
+
+      window.location.href = 'index.html#studentDashboard';
+    } catch (error) {
+      loginStatus.textContent = window.location.protocol === 'file:'
+        ? 'This page is opened from your computer. Open it through your hosted site to log in.'
+        : 'We could not reach TutorRush. Please try again.';
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = 'log in';
+    }
+  });
+
+  document.getElementById('google-login').addEventListener('click', () => {
+    document.getElementById('google-status').textContent = 'Google sign-in will be available soon.';
+  });
+</script>
+</html>

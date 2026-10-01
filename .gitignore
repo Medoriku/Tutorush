@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+smtp-config.php
+storage/*.sqlite
+storage/*.sqlite-*
+storage/*-debug.log
+.DS_Store

@@ -1,0 +1,2387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="description" content="TutorRush is a friendly on-demand tutoring platform for students and tutors, featuring school-specific course prep." />
+	<meta http-equiv="refresh" content="0; url=student-landing.html" />
+	<title>TutorRush | Find Your Tutor</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet" />
+	<style>
+		:root {
+			--bg: #fffaf5;
+			--bg-soft: #fff2ea;
+			--ink: #18202c;
+			--muted: #627085;
+			--pink: #ff88b7;
+			--peach: #ffb37f;
+			--mint: #8ae1c1;
+			--sky: #89c7ff;
+			--lavender: #b8a6ff;
+			--sun: #ffd66e;
+			--cu-gold: #cfb87c;
+			--cu-black: #000000;
+			--card: rgba(255, 255, 255, 0.82);
+			--border: rgba(24, 32, 44, 0.08);
+			--shadow: 0 18px 50px rgba(31, 39, 61, 0.12);
+			--shadow-soft: 0 10px 30px rgba(31, 39, 61, 0.08);
+			--radius-xl: 32px;
+			--radius-lg: 24px;
+			--radius-md: 18px;
+			--radius-sm: 14px;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		html {
+			scroll-behavior: smooth;
+		}
+
+		body {
+			margin: 0;
+			font-family: "Space Grotesk", "Segoe UI", sans-serif;
+			color: var(--ink);
+			background:
+				radial-gradient(circle at top left, rgba(255, 136, 183, 0.18), transparent 30%),
+				radial-gradient(circle at top right, rgba(138, 225, 193, 0.2), transparent 28%),
+				radial-gradient(circle at 70% 15%, rgba(185, 166, 255, 0.16), transparent 24%),
+				linear-gradient(180deg, #fffdfb 0%, #fff8f0 60%, #fff6fa 100%);
+			min-height: 100vh;
+			overflow-x: clip;
+		}
+
+		.shell {
+			width: min(1500px, calc(100% - 2rem));
+			margin: 0 auto;
+			padding: 1rem 0 4.5rem;
+		}
+
+		/* Top Navigation */
+		.topbar {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			gap: 1rem;
+			padding: 0.85rem 1.25rem;
+			background: rgba(255, 255, 255, 0.85);
+			border: 1px solid var(--border);
+			border-radius: 999px;
+			backdrop-filter: blur(18px);
+			box-shadow: var(--shadow-soft);
+			position: sticky;
+			top: 0.85rem;
+			z-index: 100;
+		}
+
+		.brand {
+			display: flex;
+			align-items: center;
+			gap: 0.75rem;
+			font-family: "Fredoka", sans-serif;
+			font-weight: 600;
+			letter-spacing: -0.02em;
+			cursor: pointer;
+		}
+
+		.brand-mark {
+			width: 2.7rem;
+			height: 2.7rem;
+			display: grid;
+			place-items: center;
+			border-radius: 16px;
+			color: white;
+			font-weight: 700;
+			background: linear-gradient(135deg, var(--pink), var(--lavender), var(--sky));
+			box-shadow: 0 10px 28px rgba(184, 166, 255, 0.35);
+		}
+
+		.mode-toggle-group {
+			display: flex;
+			background: rgba(24, 32, 44, 0.05);
+			padding: 0.25rem;
+			border-radius: 999px;
+		}
+
+		.mode-btn {
+			border: none;
+			background: transparent;
+			padding: 0.5rem 1rem;
+			border-radius: 999px;
+			font: inherit;
+			font-weight: 600;
+			font-size: 0.9rem;
+			cursor: pointer;
+			color: var(--muted);
+			transition: all 0.2s ease;
+		}
+
+		.mode-btn.active {
+			background: white;
+			color: var(--ink);
+			box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+		}
+
+		.nav {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			color: var(--muted);
+			font-size: 0.95rem;
+			font-weight: 500;
+		}
+
+		.nav a {
+			color: inherit;
+			text-decoration: none;
+			padding: 0.5rem 0.85rem;
+			border-radius: 999px;
+			transition: 0.2s ease;
+		}
+
+		.nav a:hover {
+			background: rgba(24, 32, 44, 0.06);
+			color: var(--ink);
+		}
+
+		.cta-row {
+			display: flex;
+			align-items: center;
+			gap: 0.75rem;
+		}
+
+		.button {
+			border: none;
+			cursor: pointer;
+			padding: 0.8rem 1.25rem;
+			border-radius: 999px;
+			font: inherit;
+			font-weight: 700;
+			min-height: 46px;
+			transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 0.5rem;
+		}
+
+		.button:hover {
+			transform: translateY(-2px);
+		}
+
+		.button-primary {
+			color: #111827;
+			background: linear-gradient(135deg, #ffdb8d, #ffaf86 50%, #ff91b8);
+			box-shadow: 0 10px 20px rgba(255, 145, 184, 0.24);
+		}
+
+		.button-secondary {
+			color: var(--ink);
+			background: rgba(255, 255, 255, 0.9);
+			border: 1px solid rgba(24, 32, 44, 0.1);
+		}
+
+		/* Main Views */
+		.view-section {
+			display: block;
+		}
+
+		.view-section.hidden {
+			display: none;
+		}
+
+		/* Hero Section */
+		.hero {
+			display: grid;
+			grid-template-columns: 1.1fr 0.9fr;
+			gap: 2.6rem;
+			align-items: center;
+			padding: 3.5rem 0 2.5rem;
+		}
+
+		.eyebrow {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.55rem;
+			padding: 0.5rem 0.9rem;
+			border-radius: 999px;
+			background: rgba(255, 255, 255, 0.85);
+			border: 1px solid var(--border);
+			color: var(--muted);
+			font-size: 0.9rem;
+			font-weight: 600;
+			margin-bottom: 1.2rem;
+			box-shadow: var(--shadow-soft);
+		}
+
+		.eyebrow-dot {
+			width: 0.6rem;
+			height: 0.6rem;
+			border-radius: 999px;
+			background: linear-gradient(135deg, var(--mint), var(--sky));
+			box-shadow: 0 0 0 4px rgba(138, 225, 193, 0.3);
+		}
+
+		h1, h2, h3, .section-title {
+			font-family: "Fredoka", sans-serif;
+			letter-spacing: -0.03em;
+			margin: 0;
+		}
+
+		h1 {
+			font-size: clamp(2.8rem, 5.5vw, 5.2rem);
+			line-height: 1.02;
+		}
+
+		.lead {
+			margin: 1.2rem 0 1.6rem;
+			font-size: clamp(1.05rem, 1.4vw, 1.2rem);
+			line-height: 1.65;
+			color: var(--muted);
+			max-width: 52ch;
+		}
+
+		.hero-actions {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.9rem;
+			margin-bottom: 1.8rem;
+		}
+
+		.hero-stats {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			gap: 1rem;
+		}
+
+		.stat {
+			padding: 1rem;
+			border-radius: var(--radius-md);
+			background: rgba(255, 255, 255, 0.85);
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow-soft);
+		}
+
+		.stat strong {
+			display: block;
+			font-size: clamp(1.4rem, 2vw, 2rem);
+			margin-bottom: 0.15rem;
+			font-family: "Fredoka", sans-serif;
+		}
+
+		.stat span {
+			color: var(--muted);
+			font-size: 0.88rem;
+		}
+
+		/* Interactive Booking Card Enhancements */
+		.control-group {
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+			margin-bottom: 14px;
+		}
+		.control-label {
+			font-weight: 700;
+			font-size: 0.88rem;
+			color: var(--ink);
+		}
+		.session-slider-tabs {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 6px;
+			background: var(--bg-soft);
+			padding: 4px;
+			border-radius: var(--radius-md);
+		}
+		.slider-tab {
+			background: transparent;
+			border: none;
+			padding: 9px 4px;
+			font-weight: 600;
+			font-size: 0.8rem;
+			color: var(--muted);
+			border-radius: 12px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+		}
+		.slider-tab.active {
+			background: #fff;
+			color: var(--ink);
+			box-shadow: var(--shadow-soft);
+		}
+		.time-range {
+			width: 100%;
+			accent-color: var(--pink);
+			cursor: pointer;
+		}
+		.range-output {
+			font-size: 0.82rem;
+			color: var(--muted);
+			text-align: right;
+			font-weight: 600;
+		}
+		.execution-toggle-group {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 6px;
+			background: var(--bg-soft);
+			padding: 4px;
+			border-radius: var(--radius-md);
+		}
+		.exec-btn {
+			background: transparent;
+			border: none;
+			padding: 9px;
+			font-weight: 600;
+			font-size: 0.82rem;
+			color: var(--muted);
+			border-radius: 12px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+		}
+		.exec-btn.active {
+			background: var(--sky);
+			color: var(--ink);
+			box-shadow: var(--shadow-soft);
+		}
+
+		/* Auth Modal Overlay Styles */
+		.auth-modal-overlay {
+			position: fixed;
+			inset: 0;
+			background: rgba(24, 32, 44, 0.45);
+			backdrop-filter: blur(8px);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			z-index: 1000;
+		}
+		.auth-modal-card {
+			background: #fff;
+			width: 100%;
+			max-width: 400px;
+			padding: 32px;
+			border-radius: var(--radius-xl);
+			box-shadow: var(--shadow);
+			position: relative;
+			border: 1px solid var(--border);
+		}
+		.modal-close {
+			position: absolute;
+			top: 20px;
+			right: 20px;
+			background: var(--bg-soft);
+			border: none;
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			font-size: 1.2rem;
+			font-weight: bold;
+			cursor: pointer;
+			color: var(--muted);
+			display: grid;
+			place-items: center;
+		}
+		.modal-header-tabs {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 8px;
+			margin-bottom: 24px;
+			background: var(--bg-soft);
+			padding: 4px;
+			border-radius: var(--radius-sm);
+		}
+		.auth-tab {
+			background: transparent;
+			border: none;
+			padding: 8px;
+			font-weight: 600;
+			border-radius: 10px;
+			cursor: pointer;
+			color: var(--muted);
+		}
+		.auth-tab.active {
+			background: #fff;
+			color: var(--ink);
+			box-shadow: var(--shadow-soft);
+		}
+		.form-group {
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			margin-bottom: 16px;
+		}
+		.form-group label {
+			font-size: 0.85rem;
+			font-weight: 600;
+			color: var(--ink);
+		}
+		.form-group input {
+			padding: 12px;
+			border: 1px solid var(--border);
+			border-radius: var(--radius-sm);
+			font-size: 0.95rem;
+			background: var(--bg);
+			font-family: inherit;
+		}
+		.btn-auth-submit {
+			width: 100%;
+			background: var(--ink);
+			color: #fff;
+			border: none;
+			padding: 14px;
+			border-radius: var(--radius-sm);
+			font-weight: 700;
+			cursor: pointer;
+			margin-top: 8px;
+			font-family: inherit;
+		}
+
+		/* Cards & Panels */
+		.panel, .section-card {
+			background: rgba(255, 255, 255, 0.82);
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow-soft);
+			backdrop-filter: blur(16px);
+			border-radius: var(--radius-xl);
+			padding: 1.5rem;
+		}
+
+		.section {
+			margin-top: 2.5rem;
+		}
+
+		.section-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: flex-end;
+			gap: 1rem;
+			margin-bottom: 1.5rem;
+		}
+
+		/* CU Boulder Hub */
+		.cu-badge {
+			background: var(--cu-black);
+			color: var(--cu-gold);
+			padding: 0.3rem 0.8rem;
+			border-radius: 8px;
+			font-family: "Fredoka", sans-serif;
+			font-weight: 700;
+			font-size: 0.85rem;
+			display: inline-flex;
+			align-items: center;
+			gap: 0.4rem;
+		}
+
+		.cu-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+			gap: 1.2rem;
+		}
+
+		.course-card {
+			background: white;
+			border: 1px solid var(--border);
+			border-radius: var(--radius-lg);
+			padding: 1.25rem;
+			display: flex;
+			flex-direction: column;
+			gap: 0.8rem;
+			transition: all 0.2s ease;
+		}
+
+		.course-card:hover {
+			transform: translateY(-3px);
+			box-shadow: 0 12px 24px rgba(0,0,0,0.06);
+		}
+
+		.course-code {
+			font-weight: 700;
+			font-size: 0.9rem;
+			color: var(--muted);
+		}
+
+		.course-title {
+			font-size: 1.2rem;
+			margin: 0;
+		}
+
+		.course-tags {
+			display: flex;
+			gap: 0.4rem;
+			flex-wrap: wrap;
+		}
+
+		.mini-tag {
+			background: rgba(24, 32, 44, 0.05);
+			padding: 0.2rem 0.5rem;
+			border-radius: 6px;
+			font-size: 0.78rem;
+			color: var(--muted);
+			font-weight: 600;
+		}
+
+		/* Tutor Dashboard Component */
+		.tutor-dashboard-grid {
+			display: grid;
+			grid-template-columns: 280px 1fr;
+			gap: 1.5rem;
+		}
+
+		.tutor-sidebar {
+			background: white;
+			border-radius: var(--radius-lg);
+			padding: 1.25rem;
+			border: 1px solid var(--border);
+			display: flex;
+			flex-direction: column;
+			gap: 1.25rem;
+		}
+
+		.status-toggle {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			background: var(--bg-soft);
+			padding: 0.8rem 1rem;
+			border-radius: var(--radius-md);
+		}
+
+		.toggle-switch {
+			position: relative;
+			width: 48px;
+			height: 26px;
+			appearance: none;
+			background: #cbd5e1;
+			outline: none;
+			border-radius: 999px;
+			cursor: pointer;
+			transition: background 0.2s;
+		}
+
+		.toggle-switch:checked {
+			background: #35d07f;
+		}
+
+		.toggle-switch::before {
+			content: "";
+			position: absolute;
+			width: 20px;
+			height: 20px;
+			border-radius: 50%;
+			top: 3px;
+			left: 3px;
+			background: white;
+			transition: transform 0.2s;
+		}
+
+		.toggle-switch:checked::before {
+			transform: translateX(22px);
+		}
+
+		.request-card {
+			background: white;
+			border: 1px solid var(--border);
+			border-left: 4px solid var(--pink);
+			border-radius: var(--radius-md);
+			padding: 1rem 1.2rem;
+			margin-bottom: 1rem;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+
+		/* General Tutor Cards */
+		.chip-row {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.6rem;
+			margin-bottom: 1.2rem;
+		}
+
+		.chip {
+			border: 1px solid var(--border);
+			background: rgba(255, 255, 255, 0.8);
+			color: var(--muted);
+			border-radius: 999px;
+			padding: 0.6rem 1rem;
+			font-weight: 600;
+			cursor: pointer;
+			transition: 0.2s ease;
+		}
+
+		.chip.active, .chip:hover {
+			color: var(--ink);
+			background: linear-gradient(135deg, rgba(255, 214, 110, 0.7), rgba(255, 145, 184, 0.55));
+			border-color: transparent;
+		}
+
+		.search-shell {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.75rem;
+			margin-bottom: 1rem;
+		}
+
+		.search-input,
+		.search-select {
+			padding: 0.85rem 1rem;
+			border: 1px solid var(--border);
+			border-radius: 999px;
+			background: #fff;
+			font: inherit;
+			color: var(--ink);
+			min-width: 220px;
+		}
+
+		.search-select {
+			min-width: 140px;
+		}
+
+		.search-input:focus,
+		.search-select:focus {
+			outline: 2px solid rgba(255, 145, 184, 0.28);
+			outline-offset: 2px;
+		}
+
+		.match-banner {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			gap: 1rem;
+			padding: 1rem 1.1rem;
+			border-radius: var(--radius-md);
+			margin-bottom: 1rem;
+			background: linear-gradient(135deg, rgba(255, 214, 110, 0.28), rgba(255, 145, 184, 0.18));
+			border: 1px solid rgba(255, 145, 184, 0.24);
+			color: var(--ink);
+		}
+
+		.match-banner strong {
+			display: block;
+			margin-bottom: 0.2rem;
+		}
+
+		.match-banner.success {
+			background: linear-gradient(135deg, rgba(138, 225, 193, 0.24), rgba(137, 199, 255, 0.2));
+			border-color: rgba(53, 208, 127, 0.28);
+		}
+
+		.match-banner.info {
+			background: linear-gradient(135deg, rgba(137, 199, 255, 0.2), rgba(185, 166, 255, 0.18));
+			border-color: rgba(137, 199, 255, 0.28);
+		}
+
+		/* Calendar Styles */
+		.calendar-shell {
+			display: flex;
+			flex-direction: column;
+			gap: 0.75rem;
+		}
+
+		.calendar-month {
+			display: flex;
+			flex-direction: column;
+			gap: 0.8rem;
+		}
+
+		.calendar-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			gap: 0.5rem;
+			font-size: 0.9rem;
+			color: var(--muted);
+		}
+
+		.calendar-header strong,
+		.calendar-header span {
+			display: block;
+		}
+
+		.calendar-legend {
+			display: flex;
+			gap: 0.5rem;
+			flex-wrap: wrap;
+		}
+
+		.calendar-legend-item {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.35rem;
+			padding: 0.28rem 0.55rem;
+			border-radius: 999px;
+			background: rgba(24, 32, 44, 0.05);
+			font-size: 0.78rem;
+			color: var(--muted);
+			font-weight: 600;
+		}
+
+		.calendar-grid {
+			display: grid;
+			grid-template-columns: repeat(7, minmax(0, 1fr));
+			gap: 0.4rem;
+		}
+
+		.calendar-weekday,
+		.calendar-date {
+			border-radius: 12px;
+			min-height: 38px;
+			display: grid;
+			place-items: center;
+			font: inherit;
+		}
+
+		.calendar-weekday {
+			background: transparent;
+			color: var(--muted);
+			font-size: 0.72rem;
+			font-weight: 700;
+			min-height: 20px;
+		}
+
+		.calendar-date {
+			border: 1px solid var(--border);
+			background: #fff;
+			padding: 0;
+			cursor: pointer;
+			position: relative;
+			font-weight: 600;
+			font-size: 0.85rem;
+			transition: all 0.2s ease;
+		}
+
+		.calendar-date:hover {
+			border-color: var(--pink);
+		}
+
+		.calendar-date.muted {
+			opacity: 0.35;
+		}
+
+		.calendar-date.today {
+			box-shadow: inset 0 0 0 2px rgba(255, 145, 184, 0.35);
+		}
+
+		.calendar-date.has-event::after {
+			content: "";
+			position: absolute;
+			bottom: 4px;
+			width: 0.35rem;
+			height: 0.35rem;
+			border-radius: 999px;
+			background: var(--pink);
+		}
+
+		.calendar-date.active {
+			background: linear-gradient(135deg, rgba(255, 214, 110, 0.88), rgba(255, 145, 184, 0.68));
+			border-color: transparent;
+			color: var(--ink);
+			font-weight: 700;
+		}
+
+		.calendar-date.active.has-event::after {
+			background: #111827;
+		}
+
+		.calendar-events {
+			display: flex;
+			flex-direction: column;
+			gap: 0.45rem;
+			max-height: 120px;
+			overflow-y: auto;
+		}
+
+		.calendar-event {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			gap: 0.75rem;
+			padding: 0.55rem 0.75rem;
+			border-radius: 12px;
+			background: #fff;
+			border: 1px solid var(--border);
+			font-size: 0.82rem;
+		}
+
+		.calendar-event strong {
+			display: block;
+			font-size: 0.88rem;
+		}
+
+		.calendar-event span {
+			color: var(--muted);
+		}
+
+		.time-slot-row {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.4rem;
+		}
+
+		.time-slot {
+			border: 1px solid var(--border);
+			background: #fff;
+			border-radius: 999px;
+			padding: 0.4rem 0.65rem;
+			font: inherit;
+			font-size: 0.82rem;
+			cursor: pointer;
+			transition: all 0.2s;
+		}
+
+		.time-slot.active {
+			background: linear-gradient(135deg, rgba(255, 214, 110, 0.78), rgba(255, 145, 184, 0.58));
+			border-color: transparent;
+			color: var(--ink);
+			font-weight: 700;
+		}
+
+		.calendar-summary {
+			padding: 0.65rem 0.75rem;
+			border-radius: var(--radius-sm);
+			background: var(--bg-soft);
+			border: 1px solid rgba(255, 145, 184, 0.18);
+			font-size: 0.85rem;
+			color: var(--ink);
+		}
+
+		/* Dashboard & Chat/Tutor Grid */
+		.dashboard-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+			gap: 1rem;
+			margin-top: 1rem;
+		}
+
+		.dashboard-card {
+			padding: 1rem 1.1rem;
+			border-radius: var(--radius-lg);
+			background: #fff;
+			border: 1px solid var(--border);
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+
+		.dashboard-pill {
+			display: inline-flex;
+			align-self: flex-start;
+			padding: 0.26rem 0.55rem;
+			border-radius: 999px;
+			background: rgba(24, 32, 44, 0.06);
+			color: var(--muted);
+			font-size: 0.78rem;
+			font-weight: 700;
+		}
+
+		.profile-pill {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.5rem;
+			padding: 0.55rem 0.8rem;
+			border-radius: 999px;
+			background: rgba(255, 255, 255, 0.9);
+			border: 1px solid var(--border);
+			color: var(--ink);
+			font-size: 0.9rem;
+			font-weight: 700;
+		}
+
+		.profile-dot {
+			width: 0.7rem;
+			height: 0.7rem;
+			border-radius: 50%;
+			background: var(--mint);
+			box-shadow: 0 0 0 4px rgba(138, 225, 193, 0.18);
+		}
+
+		.wait-room-card {
+			margin-top: 1rem;
+			padding: 1.1rem 1.2rem;
+			border-radius: var(--radius-lg);
+			background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(255, 242, 234, 0.9));
+			border: 1px solid rgba(255, 145, 184, 0.24);
+			display: flex;
+			flex-direction: column;
+			gap: 0.9rem;
+		}
+
+		.wait-room-status {
+			display: inline-flex;
+			align-self: flex-start;
+			padding: 0.3rem 0.65rem;
+			border-radius: 999px;
+			background: rgba(255, 145, 184, 0.18);
+			color: #b94a72;
+			font-size: 0.8rem;
+			font-weight: 700;
+		}
+
+		.wait-room-status.accepted {
+			background: rgba(138, 225, 193, 0.24);
+			color: #1f8a58;
+		}
+
+		.wait-room-list {
+			padding-left: 1.1rem;
+			color: var(--muted);
+			margin: 0;
+			display: flex;
+			flex-direction: column;
+			gap: 0.35rem;
+		}
+
+		/* Chat and Tutors Left Component */
+.chat-stats-container {
+			display: grid;
+			grid-template-columns: 1.1fr 0.9fr;
+			gap: 1.2rem;
+			margin-top: 1.2rem;
+			align-items: stretch; /* Ensures both feature cards match height */
+		}
+		.feature-card {
+			background: #fff;
+			border: 1px solid var(--border);
+			border-radius: var(--radius-lg);
+			padding: 1.2rem;
+			display: flex;
+			flex-direction: column;
+			gap: 0.8rem;
+			height: 100%; /* Fills parent height */
+		}
+		.tutors-chat-panel {
+			display: grid;
+			grid-template-columns: 220px 1fr;
+			gap: 1rem;
+			flex: 1; /* Takes remaining vertical space */
+			min-height: 0;
+		}
+		.tutor-picker-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+			max-height: none; /* Removes previous height restrictions */
+			height: 100%;
+			overflow-y: auto;
+			padding-right: 4px;
+		}
+		.tutor-picker-item {
+			display: flex;
+			align-items: center;
+			gap: 0.75rem;
+			padding: 0.6rem 0.75rem;
+			background: var(--bg-soft);
+			border: 1px solid var(--border);
+			border-radius: var(--radius-sm);
+			cursor: pointer;
+			transition: all 0.2s ease;
+		}
+		.tutor-picker-item:hover, .tutor-picker-item.active {
+			background: linear-gradient(135deg, rgba(255, 214, 110, 0.3), rgba(255, 145, 184, 0.2));
+			border-color: rgba(255, 145, 184, 0.4);
+		}
+		.picker-avatar {
+			width: 2.2rem;
+			height: 2.2rem;
+			border-radius: 50%;
+			background: linear-gradient(135deg, var(--pink), var(--lavender));
+			color: white;
+			display: grid;
+			place-items: center;
+			font-weight: 700;
+			font-size: 0.85rem;
+			flex-shrink: 0;
+		}
+		.chat-box {
+			background: var(--bg-soft);
+			border-radius: var(--radius-sm);
+			padding: 0.8rem;
+			flex: 1; /* Automatically stretches to match the calendar height */
+			min-height: 260px;
+			overflow-y: auto;
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			font-size: 0.85rem;
+		}
+		.chat-msg {
+			padding: 6px 10px;
+			border-radius: 10px;
+			max-width: 85%;
+		}
+		.chat-msg.incoming {
+			background: #fff;
+			align-self: flex-start;
+			border: 1px solid var(--border);
+		}
+		.chat-msg.outgoing {
+			background: var(--sky);
+			align-self: flex-end;
+		}
+		.chat-input-row {
+			display: flex;
+			gap: 6px;
+			margin-top: auto;
+		}
+		.chat-input-row input {
+			flex: 1;
+			padding: 8px 10px;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			font-size: 0.85rem;
+		}
+
+		.tutor-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+			gap: 1rem;
+		}
+
+		.tutor-card {
+			padding: 1.2rem;
+			border-radius: 24px;
+			background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 248, 240, 0.9));
+			border: 1px solid rgba(24, 32, 44, 0.07);
+			display: flex;
+			flex-direction: column;
+			gap: 0.9rem;
+			transition: all 0.2s ease;
+		}
+
+		.tutor-card:hover {
+			transform: translateY(-3px);
+			box-shadow: 0 14px 28px rgba(31, 39, 61, 0.08);
+		}
+
+		.avatar {
+			width: 3rem;
+			height: 3rem;
+			border-radius: 50%;
+			display: grid;
+			place-items: center;
+			font-family: "Fredoka", sans-serif;
+			font-size: 1.1rem;
+			color: white;
+			background: linear-gradient(135deg, var(--pink), var(--lavender));
+		}
+
+		.avatar.alt { background: linear-gradient(135deg, var(--mint), var(--sky)); }
+		.avatar.third { background: linear-gradient(135deg, var(--peach), var(--sun)); }
+		.avatar.fourth { background: linear-gradient(135deg, var(--cu-gold), var(--peach)); }
+
+		/* FAQ */
+		.faq-item {
+			border-radius: 16px;
+			border: 1px solid var(--border);
+			background: rgba(255, 255, 255, 0.8);
+			margin-bottom: 0.6rem;
+			overflow: hidden;
+		}
+
+		.faq-item button {
+			width: 100%;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			padding: 1rem 1.25rem;
+			background: transparent;
+			border: 0;
+			font: inherit;
+			font-weight: 700;
+			cursor: pointer;
+			color: var(--ink);
+		}
+
+		.faq-content {
+			max-height: 0;
+			overflow: hidden;
+			transition: max-height 0.28s ease, padding 0.28s ease;
+			padding: 0 1.25rem;
+			color: var(--muted);
+		}
+
+		.faq-item.open .faq-content {
+			max-height: 150px;
+			padding-bottom: 1rem;
+		}
+
+		.footer {
+			margin-top: 3rem;
+			padding-top: 1.5rem;
+			border-top: 1px solid var(--border);
+			color: var(--muted);
+			display: flex;
+			justify-content: space-between;
+			gap: 1rem;
+			flex-wrap: wrap;
+			font-size: 0.9rem;
+		}
+
+		@media (max-width: 900px) {
+			.hero { grid-template-columns: 1fr; }
+			.tutor-dashboard-grid { grid-template-columns: 1fr; }
+			.chat-stats-container { grid-template-columns: 1fr; }
+			.tutors-chat-panel { grid-template-columns: 1fr; }
+			.nav { display: none; }
+		}
+	</style>
+</head>
+<body>
+
+	<div class="shell">
+		<!-- Top Bar -->
+		<header class="topbar">
+			<div class="brand" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+				<div class="brand-mark">TR</div>
+				<div>
+					<div style="font-size: 1.1rem;">TutorRush</div>
+					<small style="color: var(--muted); font-weight: 500;">Tutoring, minus the panic</small>
+				</div>
+			</div>
+
+			<!-- Student / Tutor Mode Toggle -->
+			<div class="mode-toggle-group">
+				<button class="mode-btn active" id="btnStudentMode">Student View</button>
+				<button class="mode-btn" id="btnTutorMode">Tutor Portal ⚡</button>
+			</div>
+
+			<nav class="nav" aria-label="Primary Nav">
+				<a href="#cu-boulder">CU Boulder</a>
+				<a href="#match">Find Tutors & Chats</a>
+				<a href="#how-it-works">How It Works</a>
+				<a href="#faq">FAQ</a>
+			</nav>
+
+			<div class="cta-row">
+				<div class="profile-pill" id="profilePill" hidden>
+					<span class="profile-dot"></span>
+					<span id="profileName">Guest</span>
+				</div>
+				<button class="button button-secondary" id="authButton" type="button">Log In</button>
+				<button class="button button-primary" type="button" onclick="document.getElementById('match').scrollIntoView({behavior: 'smooth'})">Get Help Now</button>
+			</div>
+		</header>
+
+		<!-- ================= STUDENT VIEW ================= -->
+		<div id="studentView" class="view-section">
+			<!-- Hero Section -->
+			<section class="hero">
+				<div>
+					<div class="eyebrow"><span class="eyebrow-dot"></span> Instant 1-on-1 Help & Course Prep</div>
+					<h1>Find a tutor who actually gets your class.</h1>
+					<p class="lead">Connect with peer tutors and course experts for last-minute assignment help, exam prep, and step-by-step walkthroughs.</p>
+					<div class="hero-actions">
+						<button class="button button-primary" type="button" onclick="document.getElementById('match').scrollIntoView({behavior: 'smooth'})">Find a Tutor</button>
+						<button class="button button-secondary" type="button" onclick="document.getElementById('cu-boulder').scrollIntoView({behavior: 'smooth'})">CU Boulder Classes</button>
+					</div>
+					<div class="hero-stats">
+						<div class="stat"><strong>3,200+</strong><span>active learners</span></div>
+						<div class="stat"><strong>&lt; 5 min</strong><span>avg match time</span></div>
+						<div class="stat"><strong>4.9 ★</strong><span>tutor rating</span></div>
+					</div>
+				</div>
+
+				<!-- Interactive Booking Widget Card -->
+				<div class="panel" style="background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(255,242,234,0.85));">
+					<h3 style="margin-bottom: 0.3rem; font-size: 1.3rem;">⚡ Session Setup & Match</h3>
+					<p style="color: var(--muted); margin-bottom: 1rem; font-size: 0.9rem;">Tailor your study session type, duration, and execution preference.</p>
+					
+					<!-- Step 1: Session Vibe / Type Slider Buttons -->
+					<div class="control-group">
+						<label class="control-label">1. Session Focus</label>
+						<div class="session-slider-tabs" id="sessionSlider">
+							<button class="slider-tab active" data-type="hw" data-default-time="30">📝 HW Problem</button>
+							<button class="slider-tab" data-type="study" data-default-time="60">🧠 Study Sesh</button>
+							<button class="slider-tab" data-type="exam" data-default-time="120">🚀 Exam Prep</button>
+						</div>
+					</div>
+
+					<!-- Step 2: Duration Slider -->
+					<div class="control-group">
+						<label class="control-label">2. Duration</label>
+						<input type="range" min="30" max="180" step="30" value="30" class="time-range" id="durationRange">
+						<div class="range-output"><span id="durationValue">30</span> minutes</div>
+					</div>
+
+					<!-- Step 3: Execution Mode -->
+					<div class="control-group">
+						<label class="control-label">3. Execution Mode</label>
+						<div class="execution-toggle-group">
+							<button class="exec-btn active" data-mode="immediate">⚡ Search Now</button>
+							<button class="exec-btn" data-mode="plan">📅 Plan for Later</button>
+						</div>
+					</div>
+
+					<!-- Action Button -->
+					<button class="button button-primary" style="width: 100%; margin-top: 4px;" id="actionBtn" onclick="handleMatchAction()">Find Tutors Now ⚡</button>
+				</div>
+			</section>
+
+			<section class="section" id="studentDashboard" hidden>
+				<div class="section-card" style="background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,248,220,0.4));">
+					<div class="section-header">
+						<div>
+							<div class="cu-badge" style="margin-bottom: 0.5rem;">📈 Your Student Dashboard</div>
+							<h2 class="section-title" id="dashboardGreeting">Welcome back — your next study win is ready.</h2>
+							<p style="color: var(--muted); margin-top: 0.25rem;">Select a tutor from your conversation list on the left, chat in real time, and schedule sessions with the interactive calendar on the right.</p>
+						</div>
+					</div>
+					<div class="dashboard-grid">
+						<div class="dashboard-card">
+							<span class="dashboard-pill">Next session</span>
+							<strong id="nextSessionTitle">Physics review in 20 min</strong>
+							<span id="nextSessionMeta" style="color: var(--muted);">with Noah R. • CU Boulder</span>
+						</div>
+						<div class="dashboard-card">
+							<span class="dashboard-pill">Saved plan</span>
+							<strong>Exam prep • Tomorrow, 6:30 PM</strong>
+							<span style="color: var(--muted);">Ready for your calc review block</span>
+						</div>
+						<div class="dashboard-card">
+							<span class="dashboard-pill">Study streak</span>
+							<strong>7 days strong</strong>
+							<span style="color: var(--muted);">Keep your momentum with one quick session</span>
+						</div>
+					</div>
+
+					<!-- Student Chat & Tutors (Left) + Interactive Calendar (Right) -->
+					<div class="chat-stats-container">
+						<!-- Left Side: Tutors list & active conversation chat -->
+						<div class="feature-card">
+							<h4 style="margin:0;">💬 Tutor Conversations & Contacts</h4>
+							<p style="margin:0; font-size:0.85rem; color:var(--muted);">Select a tutor to open your active chat stream.</p>
+							<div class="tutors-chat-panel">
+								<div class="tutor-picker-list" id="studentTutorList">
+									<!-- Injected via JS -->
+								</div>
+								<div style="display:flex; flex-direction:column; gap:8px;">
+									<div class="chat-box" id="studentChatBox">
+										<div class="chat-msg incoming">Noah R.: Hey! Ready for our review session?</div>
+										<div class="chat-msg outgoing">Yes, just reviewing my notes!</div>
+									</div>
+									<div class="chat-input-row">
+										<input type="text" id="studentChatInput" placeholder="Message tutor..." />
+										<button class="button button-secondary" style="min-height:36px; padding:6px 12px;" onclick="sendStudentChat()">Send</button>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Right Side: Prettier & More Intuitive Calendar -->
+						<div class="feature-card">
+							<h4 style="margin:0;">📅 Interactive Study Calendar</h4>
+							<div class="calendar-shell calendar-month">
+								<div class="calendar-header">
+									<div>
+										<strong>August 2026</strong>
+										<span>Click any day to schedule</span>
+									</div>
+									<div class="calendar-legend">
+										<span class="calendar-legend-item">● session</span>
+										<span class="calendar-legend-item">■ today</span>
+									</div>
+								</div>
+								<div class="calendar-grid" id="studentCalendarGrid"></div>
+								<div class="time-slot-row" id="studentCalendarSlots">
+									<button class="time-slot active" data-time="4:00 PM">4:00 PM</button>
+									<button class="time-slot" data-time="6:30 PM">6:30 PM</button>
+									<button class="time-slot" data-time="8:00 PM">8:00 PM</button>
+								</div>
+								<div class="calendar-summary" id="studentCalendarSummary" data-selection="Aug 8 • 4:00 PM">Selected: Aug 8 • 4:00 PM</div>
+								<div class="calendar-events" id="studentCalendarEvents">
+									<div class="calendar-event">
+										<div><strong>Mon 4:00 PM</strong><span>Calc 3 review with Noah R.</span></div>
+										<span>Live</span>
+									</div>
+									<div class="calendar-event">
+										<div><strong>Thu 6:30 PM</strong><span>Essay editing with Zara P.</span></div>
+										<span>Planned</span>
+									</div>
+								</div>
+								<button class="button button-primary" style="margin-top:auto;" onclick="saveStudentSlot()">Save study slot</button>
+							</div>
+						</div>
+					</div>
+
+					<div class="wait-room-card" id="waitRoomCard" hidden>
+						<div class="wait-room-status" id="waitRoomStatus">Waiting for tutor acceptance</div>
+						<strong id="waitRoomTitle">Right-now session request is live</strong>
+						<ul class="wait-room-list" id="waitRoomList">
+							<li>Your request was sent to nearby tutors.</li>
+							<li>We’ll keep the room open until someone accepts.</li>
+						</ul>
+					</div>
+				</div>
+			</section>
+
+			<!-- CU Boulder Specific Section -->
+			<section class="section" id="cu-boulder">
+				<div class="section-card" style="background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,248,220,0.4));">
+					<div class="section-header">
+						<div>
+							<div class="cu-badge" style="margin-bottom: 0.5rem;">
+								<span>🦬</span> CU BOULDER HUB
+							</div>
+							<h2 class="section-title">Class-Specific Prep & Coursework</h2>
+							<p style="color: var(--muted); margin-top: 0.25rem;">Tutors who took the exact same class, with the same professors at CU Boulder.</p>
+						</div>
+					</div>
+
+					<div class="cu-grid">
+						<div class="course-card">
+							<span class="course-code">CU BOULDER • CSCI 1300</span>
+							<h3 class="course-title">Starting Computing (C++)</h3>
+							<div class="course-tags">
+								<span class="mini-tag">Recitation Prep</span>
+								<span class="mini-tag">Lab Homework</span>
+							</div>
+							<p style="font-size: 0.88rem; color: var(--muted); margin: 0;">Get help debugging memory leaks, pointers, and object-oriented assignments.</p>
+							<button class="button button-secondary" style="margin-top: auto;" onclick="filterByCourse('coding')">Find CSCI Tutors</button>
+						</div>
+
+						<div class="course-card">
+							<span class="course-code">CU BOULDER • MATH 2400</span>
+							<h3 class="course-title">Calculus 3 (Multivariable)</h3>
+							<div class="course-tags">
+								<span class="mini-tag">Midterm Prep</span>
+								<span class="mini-tag">WebAssign</span>
+							</div>
+							<p style="font-size: 0.88rem; color: var(--muted); margin: 0;">Master 3D vectors, partial derivatives, and multiple integrals with step-by-step guidance.</p>
+							<button class="button button-secondary" style="margin-top: auto;" onclick="filterByCourse('math')">Find Math Tutors</button>
+						</div>
+
+						<div class="course-card">
+							<span class="course-code">CU BOULDER • PHYS 1110</span>
+							<h3 class="course-title">General Physics 1</h3>
+							<div class="course-tags">
+								<span class="mini-tag">Clicker Questions</span>
+								<span class="mini-tag">Exam Reviews</span>
+							</div>
+							<p style="font-size: 0.88rem; color: var(--muted); margin: 0;">Clear explanations for kinematics, forces, work, energy, and momentum.</p>
+							<button class="button button-secondary" style="margin-top: auto;" onclick="filterByCourse('science')">Find Physics Tutors</button>
+						</div>
+
+						<div class="course-card">
+							<span class="course-code">CU BOULDER • EBIO 1210</span>
+							<h3 class="course-title">General Biology 1</h3>
+							<div class="course-tags">
+								<span class="mini-tag">Study Guides</span>
+								<span class="mini-tag">Concept Maps</span>
+							</div>
+							<p style="font-size: 0.88rem; color: var(--muted); margin: 0;">Cellular processes, genetics, and evolutionary biology broken down visually.</p>
+							<button class="button button-secondary" style="margin-top: auto;" onclick="filterByCourse('science')">Find EBIO Tutors</button>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- Tutor Directory Section -->
+			<section class="section" id="match">
+				<div class="panel">
+					<div class="section-header">
+						<div>
+							<h2 class="section-title">Available Tutors</h2>
+							<p style="color: var(--muted);">Filter by your active topic or subject needed.</p>
+						</div>
+					</div>
+
+					<div class="search-shell">
+						<input class="search-input" id="tutorSearch" type="search" placeholder="Search by class, tutor, or school" />
+						<select class="search-select" id="searchScope">
+							<option value="all">All</option>
+							<option value="class">Class</option>
+							<option value="tutor">Tutor</option>
+							<option value="school">School</option>
+						</select>
+						<button class="button button-secondary search-button" id="searchButton" type="button">Search</button>
+					</div>
+
+					<div class="match-banner" id="matchBanner" hidden>
+						<div>
+							<strong>Finding the right tutor</strong>
+							<span id="matchBannerText">Choose a session mode to see matching tutors.</span>
+						</div>
+					</div>
+
+					<div class="chip-row" id="subjectFilterRow">
+						<button class="chip active" data-subject="all">All Tutors</button>
+						<button class="chip" data-subject="math">Math & Calc</button>
+						<button class="chip" data-subject="coding">CS & Coding</button>
+						<button class="chip" data-subject="science">Physics & Bio</button>
+						<button class="chip" data-subject="writing">Writing & Essays</button>
+					</div>
+
+					<div class="tutor-grid" id="tutorDirectory">
+						<article class="tutor-card" data-subjects="coding,math" data-class="CSCI 1300" data-tutor="Maya K." data-school="CU Boulder" data-search="maya k. csci 1300 math cu boulder">
+							<div style="display: flex; justify-content: space-between; align-items: flex-start;">
+								<div class="avatar">M</div>
+								<span class="mini-tag" style="background: #dcfce7; color: #15803d;">Online • CU Senior</span>
+							</div>
+							<div>
+								<h3 style="margin: 0;">Maya K.</h3>
+								<p style="font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0;">CSCI 1300 / 2270 TA • Math Minor</p>
+							</div>
+							<div style="font-size: 0.9rem; color: var(--muted);">"Clear notes, calm pace, and code debugging without judgment."</div>
+							<div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+								<strong>$28/hr</strong>
+								<button class="button button-secondary book-btn" data-name="Maya K.">Book Session</button>
+							</div>
+						</article>
+
+						<article class="tutor-card" data-subjects="science,math" data-class="Physics 1110 / MATH 2400" data-tutor="Noah R." data-school="CU Boulder" data-search="noah r. physics 1110 math 2400 cu boulder">
+							<div style="display: flex; justify-content: space-between; align-items: flex-start;">
+								<div class="avatar alt">N</div>
+								<span class="mini-tag" style="background: #dcfce7; color: #15803d;">Online • Grad Student</span>
+							</div>
+							<div>
+								<h3 style="margin: 0;">Noah R.</h3>
+								<p style="font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0;">Physics 1110 & MATH 2400</p>
+							</div>
+							<div style="font-size: 0.9rem; color: var(--muted);">"Whiteboard diagrams and quick problem-solving strategies for exams."</div>
+							<div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+								<strong>$26/hr</strong>
+								<button class="button button-secondary book-btn" data-name="Noah R.">Book Session</button>
+							</div>
+						</article>
+
+						<article class="tutor-card" data-subjects="writing" data-class="English & Humanities" data-tutor="Zara P." data-school="CU Boulder" data-search="zara p. english humanities cu boulder">
+							<div style="display: flex; justify-content: space-between; align-items: flex-start;">
+								<div class="avatar third">Z</div>
+								<span class="mini-tag" style="background: #f1f5f9; color: #475569;">Available in 15m</span>
+							</div>
+							<div>
+								<h3 style="margin: 0;">Zara P.</h3>
+								<p style="font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0;">English & Humanities Coach</p>
+							</div>
+							<div style="font-size: 0.9rem; color: var(--muted);">"Essay structure, thesis polishing, and quick proofreading."</div>
+							<div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+								<strong>$24/hr</strong>
+								<button class="button button-secondary book-btn" data-name="Zara P.">Book Session</button>
+							</div>
+						</article>
+
+						<article class="tutor-card" data-subjects="coding,science" data-class="Python / MATLAB" data-tutor="Diyora D." data-school="CU Boulder" data-search="diyora d. python matlab structural modeling cu boulder">
+							<div style="display: flex; justify-content: space-between; align-items: flex-start;">
+								<div class="avatar fourth">D</div>
+								<span class="mini-tag" style="background: #dcfce7; color: #15803d;">Online • Aerospace Eng</span>
+							</div>
+							<div>
+								<h3 style="margin: 0;">Diyora D.</h3>
+								<p style="font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0;">Python, MATLAB & Structural Modeling</p>
+							</div>
+							<div style="font-size: 0.9rem; color: var(--muted);">"Specializing in computational modeling, debugging scripts, and lab walk-throughs."</div>
+							<div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+								<strong>$30/hr</strong>
+								<button class="button button-secondary book-btn" data-name="Diyora D.">Book Session</button>
+							</div>
+						</article>
+					</div>
+				</div>
+			</section>
+
+			<!-- FAQ Section -->
+			<section class="section" id="faq">
+				<div class="section-card">
+					<h2 class="section-title" style="margin-bottom: 1rem;">Frequently Asked Questions</h2>
+					<div class="faq-item">
+						<button type="button">How do school-specific classes work? <span>+</span></button>
+						<div class="faq-content"><p>We match you with tutors who have completed the exact same course at your school, ensuring familiarity with syllabus structures, professors, and lab setups.</p></div>
+					</div>
+					<div class="faq-item">
+						<button type="button">Can I get help on short notice? <span>+</span></button>
+						<div class="faq-content"><p>Yes! TutorRush is designed for instant matching. Use our emergency help panel to find tutors currently online and active.</p></div>
+					</div>
+					<div class="faq-item">
+						<button type="button">How does payment work? <span>+</span></button>
+						<div class="faq-content"><p>You pay per session or minute rate securely through the app only after your session concludes.</p></div>
+					</div>
+				</div>
+			</section>
+		</div>
+
+
+		<!-- ================= TUTOR PORTAL / DASHBOARD ================= -->
+		<div id="tutorView" class="view-section hidden">
+			<section class="section" style="margin-top: 1rem;">
+				<div class="section-card">
+					<div class="section-header">
+						<div>
+							<h2 class="section-title">Tutor Control Panel</h2>
+							<p style="color: var(--muted);">Manage your real-time requests, availability status, and earnings.</p>
+						</div>
+						<div class="cu-badge">Tutor Portal</div>
+					</div>
+
+					<div class="tutor-dashboard-grid">
+						<!-- Sidebar Controls -->
+						<div class="tutor-sidebar">
+							<div>
+								<span style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">STATUS</span>
+								<div class="status-toggle" style="margin-top: 0.4rem;">
+									<span id="statusLabel" style="font-weight: 700; color: #15803d;">Online & Accepting</span>
+									<input type="checkbox" id="tutorStatusToggle" class="toggle-switch" checked />
+								</div>
+							</div>
+
+							<div style="border-top: 1px solid var(--border); padding-top: 1rem;">
+								<span style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">ACTIVE COURSE SPECIALTIES</span>
+								<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem;">
+									<label style="font-size: 0.9rem;"><input type="checkbox" checked /> CU CSCI 1300 (C++)</label>
+									<label style="font-size: 0.9rem;"><input type="checkbox" checked /> CU MATH 2400 (Calc 3)</label>
+									<label style="font-size: 0.9rem;"><input type="checkbox" /> General Physics 1</label>
+								</div>
+							</div>
+
+							<div style="border-top: 1px solid var(--border); padding-top: 1rem; margin-top: auto;">
+								<div style="font-size: 0.85rem; color: var(--muted);">THIS WEEK'S EARNINGS</div>
+								<div style="font-size: 1.8rem; font-weight: 700; font-family: 'Fredoka', sans-serif;">$340.50</div>
+								<span style="font-size: 0.8rem; color: #15803d;">↑ 12 hrs tutored</span>
+							</div>
+						</div>
+
+						<!-- Live Session Requests Area -->
+						<div>
+							<h3 style="margin-bottom: 1rem;">Live Student Requests (Incoming)</h3>
+							
+							<div class="request-card">
+								<div>
+									<span class="mini-tag" style="background: #fef3c7; color: #92400e;">CU Boulder • CSCI 1300</span>
+									<h4 style="margin: 0.4rem 0 0.2rem 0; font-size: 1.1rem;">Memory Leak in Lab 4 (Pointers)</h4>
+									<p style="margin: 0; font-size: 0.88rem; color: var(--muted);">Student: Alex R. • Needs 30 min quick fix</p>
+								</div>
+								<button class="button button-primary accept-request-btn" onclick="alert('Accepted request! Launching virtual classroom...')">Accept Request</button>
+							</div>
+
+							<div class="request-card" style="border-left-color: var(--sky);">
+								<div>
+									<span class="mini-tag" style="background: #e0f2fe; color: #0369a1;">General Math • Calc 1</span>
+									<h4 style="margin: 0.4rem 0 0.2rem 0; font-size: 1.1rem;">Derivatives & Chain Rule Review</h4>
+									<p style="margin: 0; font-size: 0.88rem; color: var(--muted);">Student: Sam W. • Exam Prep Session</p>
+								</div>
+								<button class="button button-primary accept-request-btn" onclick="alert('Accepted request! Launching virtual classroom...')">Accept Request</button>
+							</div>
+
+							<!-- Tutor Chat & Calendar Section (Visible only when logged in) -->
+							<div class="chat-stats-container" id="tutorPortalExtras" hidden>
+								<div class="feature-card">
+									<h4 style="margin:0;">💬 Tutor-Student Chats</h4>
+									<div class="chat-box" id="tutorChatBox">
+										<div class="chat-msg incoming">Alex R.: Can we look at line 42?</div>
+										<div class="chat-msg outgoing">Sure, send over your code snippet.</div>
+									</div>
+									<div class="chat-input-row">
+										<input type="text" id="tutorChatInput" placeholder="Reply to student..." />
+										<button class="button button-secondary" style="min-height:36px; padding:6px 12px;" onclick="sendTutorChat()">Send</button>
+									</div>
+								</div>
+								<div class="feature-card">
+									<h4 style="margin:0;">📅 Availability Calendar</h4>
+									<div class="calendar-shell calendar-month">
+										<div class="calendar-header">
+											<div>
+												<strong>August 2026</strong>
+												<span>Set your open hours</span>
+											</div>
+											<div class="calendar-legend">
+												<span class="calendar-legend-item">● bookable</span>
+												<span class="calendar-legend-item">■ today</span>
+											</div>
+										</div>
+										<div class="calendar-grid" id="tutorCalendarGrid"></div>
+										<div class="time-slot-row" id="tutorCalendarSlots">
+											<button class="time-slot active" data-time="5:00 PM">5:00 PM</button>
+											<button class="time-slot" data-time="6:30 PM">6:30 PM</button>
+											<button class="time-slot" data-time="8:00 PM">8:00 PM</button>
+										</div>
+										<div class="calendar-summary" id="tutorCalendarSummary" data-selection="Aug 8 • 5:00 PM">Open: Aug 8 • 5:00 PM</div>
+										<div class="calendar-events" id="tutorCalendarEvents">
+											<div class="calendar-event">
+												<div><strong>Today 5:00 PM</strong><span>CSCI 1300 quick help</span></div>
+												<span>Open</span>
+											</div>
+											<div class="calendar-event">
+												<div><strong>Fri 6:30 PM</strong><span>Calc 1 accept slot</span></div>
+												<span>Queued</span>
+											</div>
+										</div>
+										<button class="button button-secondary" style="margin-top:auto;" onclick="saveTutorAvailability()">Share availability</button>
+									</div>
+								</div>
+							</div>
+
+							<div style="background: var(--bg-soft); border-radius: var(--radius-md); padding: 1.25rem; margin-top: 1.5rem; text-align: center;">
+								<h4 style="margin: 0 0 0.5rem 0;">Want to add a custom course?</h4>
+								<p style="margin: 0 0 1rem 0; font-size: 0.9rem; color: var(--muted);">Verify your transcript to tutor specific higher-level courses.</p>
+								<button class="button button-secondary" onclick="alert('Verification upload portal opened.')">Upload Course Transcript</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section class="section" id="adminPanel" hidden>
+				<div class="section-card">
+					<div class="section-header">
+						<div>
+							<div class="cu-badge" style="margin-bottom: 0.5rem;">Administrator</div>
+							<h2 class="section-title">TutorRush Operations</h2>
+							<p style="color: var(--muted); margin-top: 0.25rem;">Live account activity and the latest session requests.</p>
+						</div>
+						<button class="button button-secondary" type="button" id="refreshAdminButton">Refresh</button>
+					</div>
+					<div class="dashboard-grid">
+						<div class="dashboard-card"><span class="dashboard-pill">Accounts</span><strong id="adminUserCount">-</strong></div>
+						<div class="dashboard-card"><span class="dashboard-pill">Bookings</span><strong id="adminBookingCount">-</strong></div>
+						<div class="dashboard-card"><span class="dashboard-pill">Messages</span><strong id="adminMessageCount">-</strong></div>
+					</div>
+					<div class="feature-card" style="margin-top: 1rem;">
+						<h4 style="margin: 0;">Recent session requests</h4>
+						<div class="calendar-events" id="adminBookingList" style="margin-top: 0.75rem;"></div>
+					</div>
+				</div>
+			</section>
+		</div>
+
+		<!-- Login / Signup Modal -->
+		<div class="auth-modal-overlay" id="authModal" style="display: none;">
+			<div class="auth-modal-card">
+				<button class="modal-close" onclick="toggleAuthModal(false)">×</button>
+				<div class="modal-header-tabs">
+					<button class="auth-tab active" onclick="switchAuthTab('login')">Log In</button>
+					<button class="auth-tab" onclick="switchAuthTab('signup')">Sign Up</button>
+				</div>
+
+				<form id="authForm" onsubmit="handleAuthSubmit(event)">
+					<div class="form-group" id="nameGroup" style="display: none;">
+						<label>Full Name</label>
+						<input type="text" placeholder="Diyora Daminova" maxlength="80" autocomplete="name" />
+					</div>
+					<div class="form-group">
+						<label>Email Address</label>
+						<input type="email" placeholder="student@colorado.edu" maxlength="254" autocomplete="email" required />
+					</div>
+					<div class="form-group">
+						<label>Password</label>
+						<input type="password" placeholder="••••••••" minlength="8" maxlength="128" autocomplete="current-password" required />
+					</div>
+					<button type="submit" class="btn-auth-submit" id="authSubmitBtn">Log In</button>
+				</form>
+			</div>
+		</div>
+
+		<div class="auth-modal-overlay" id="plannerModal" style="display: none;">
+			<div class="auth-modal-card">
+				<button class="modal-close" onclick="closePlannerModal()">×</button>
+				<h3 style="margin: 0 0 0.4rem 0;">Plan your session</h3>
+				<p style="margin: 0 0 1rem 0; color: var(--muted);">Choose the day and time for <strong id="plannerTutorName">your tutor</strong>.</p>
+				<div class="form-group">
+					<label>Date</label>
+					<input type="date" id="sessionDate" />
+				</div>
+				<div class="form-group">
+					<label>Time</label>
+					<input type="time" id="sessionTime" />
+				</div>
+				<button class="button button-primary" type="button" onclick="confirmPlannerSession()" style="width: 100%;">Show Me Tutors</button>
+			</div>
+		</div>
+
+		<!-- Footer -->
+		<footer class="footer">
+			<div><strong>TutorRush</strong> — Friendly, on-demand tutoring and course-specific study support.</div>
+			<div>Made for students and tutors seeking clear, stress-free learning.</div>
+		</footer>
+	</div>
+
+	<script>
+		const btnStudentMode = document.getElementById("btnStudentMode");
+		const btnTutorMode = document.getElementById("btnTutorMode");
+		const studentView = document.getElementById("studentView");
+		const tutorView = document.getElementById("tutorView");
+		const authButton = document.getElementById("authButton");
+		const studentDashboard = document.getElementById("studentDashboard");
+		const tutorPortalExtras = document.getElementById("tutorPortalExtras");
+		const studentCalendarSlots = document.getElementById("studentCalendarSlots");
+		const studentCalendarSummary = document.getElementById("studentCalendarSummary");
+		const tutorCalendarSlots = document.getElementById("tutorCalendarSlots");
+		const tutorCalendarSummary = document.getElementById("tutorCalendarSummary");
+		const matchBanner = document.getElementById("matchBanner");
+		const profilePill = document.getElementById("profilePill");
+		const profileName = document.getElementById("profileName");
+		const dashboardGreeting = document.getElementById("dashboardGreeting");
+		const nextSessionTitle = document.getElementById("nextSessionTitle");
+		const nextSessionMeta = document.getElementById("nextSessionMeta");
+		const waitRoomCard = document.getElementById("waitRoomCard");
+		const waitRoomStatus = document.getElementById("waitRoomStatus");
+		const waitRoomTitle = document.getElementById("waitRoomTitle");
+		const waitRoomList = document.getElementById("waitRoomList");
+		const adminPanel = document.getElementById("adminPanel");
+		const refreshAdminButton = document.getElementById("refreshAdminButton");
+		
+		const currentDate = new Date();
+		const calendarMonthLabel = currentDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+		const calendarWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+		const tutorChatsData = [
+			{ name: 'Noah R.', subject: 'Physics & Calc 3', initial: 'N', history: [{ sender: 'incoming', text: 'Hey! Ready for our review session?' }, { sender: 'outgoing', text: 'Yes, just reviewing my notes!' }] },
+			{ name: 'Maya K.', subject: 'CSCI 1300 C++', initial: 'M', history: [{ sender: 'incoming', text: 'Let me know if you hit any pointer bugs.' }, { sender: 'outgoing', text: 'Will do, thanks Maya!' }] },
+			{ name: 'Zara P.', subject: 'English & Essays', initial: 'Z', history: [{ sender: 'incoming', text: 'Send over your thesis statement.' }, { sender: 'outgoing', text: 'Sent! Check it out when you can.' }] },
+			{ name: 'Diyora D.', subject: 'Python & MATLAB', initial: 'D', history: [{ sender: 'incoming', text: 'Ready for structural modeling?' }, { sender: 'outgoing', text: 'Yes, opening my script now.' }] },
+			{ name: 'Liam S.', subject: 'Applied Math', initial: 'L', history: [{ sender: 'incoming', text: 'Did you finish WebAssign problem 4?' }, { sender: 'outgoing', text: 'Almost, stuck on the derivative part.' }] }
+		];
+		let activeTutorChatIndex = 0;
+
+		const calendarStates = {
+			student: {
+				gridId: 'studentCalendarGrid',
+				eventsId: 'studentCalendarEvents',
+				summaryId: 'studentCalendarSummary',
+				selectedDay: currentDate.getDate(),
+				selectedTime: '4:00 PM',
+				events: [
+					{ day: currentDate.getDate(), time: '4:00 PM', title: 'Calc 3 review with Noah R.', tag: 'Live' },
+					{ day: currentDate.getDate() + 3, time: '6:30 PM', title: 'Essay editing with Zara P.', tag: 'Planned' }
+				]
+			},
+			tutor: {
+				gridId: 'tutorCalendarGrid',
+				eventsId: 'tutorCalendarEvents',
+				summaryId: 'tutorCalendarSummary',
+				selectedDay: currentDate.getDate(),
+				selectedTime: '5:00 PM',
+				events: [
+					{ day: currentDate.getDate(), time: '5:00 PM', title: 'CSCI 1300 quick help', tag: 'Open' },
+					{ day: currentDate.getDate() + 2, time: '6:30 PM', title: 'Calc 1 accept slot', tag: 'Queued' }
+				]
+			}
+		};
+
+		let isLoggedIn = false;
+		let currentExecutionMode = 'immediate';
+		let selectedPlannerTutor = null;
+		let currentUserName = 'Example Student';
+		let pendingBooking = null;
+		let csrfToken = '';
+		let currentUserIsAdmin = false;
+
+		async function tutorApi(action, payload = {}) {
+			if (action !== 'session' && !csrfToken) await restoreSession();
+			const response = await fetch('tutoring-api.php', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					...(csrfToken && action !== 'session' ? { 'X-CSRF-Token': csrfToken } : {})
+				},
+				body: JSON.stringify({ action, ...payload })
+			});
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(data.error || 'TutorRush could not save your changes.');
+			return data;
+		}
+
+		function activateSignedInUI(user) {
+			isLoggedIn = true;
+			currentUserName = user.name;
+			currentUserIsAdmin = user.role === 'admin';
+			authButton.textContent = 'Open Dashboard';
+			studentDashboard.hidden = false;
+			if (tutorPortalExtras) tutorPortalExtras.hidden = false;
+			adminPanel.hidden = !currentUserIsAdmin;
+			updateProfileUI();
+		}
+
+		async function restoreSession() {
+			try {
+				const result = await tutorApi('session');
+				csrfToken = result.csrfToken || '';
+				if (result.user) {
+					activateSignedInUI(result.user);
+					if (currentUserIsAdmin) loadAdminDashboard();
+					if (window.location.hash === '#studentDashboard') {
+						setTimeout(() => studentDashboard.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+					}
+				}
+				return result;
+			} catch (error) {
+				return null;
+			}
+		}
+
+		async function loadAdminDashboard() {
+			if (!currentUserIsAdmin) return;
+			try {
+				const result = await tutorApi('admin-dashboard');
+				document.getElementById('adminUserCount').textContent = result.summary.users;
+				document.getElementById('adminBookingCount').textContent = result.summary.bookings;
+				document.getElementById('adminMessageCount').textContent = result.summary.messages;
+				const list = document.getElementById('adminBookingList');
+				list.replaceChildren();
+				if (!result.recentBookings.length) {
+					list.textContent = 'No session requests yet.';
+					return;
+				}
+				result.recentBookings.forEach((booking) => {
+					const row = document.createElement('div');
+					row.className = 'calendar-event';
+					const details = document.createElement('div');
+					const title = document.createElement('strong');
+					title.textContent = `${booking.student_name} with ${booking.tutor_name}`;
+					const metadata = document.createElement('span');
+					metadata.textContent = `${booking.scheduled_for} - ${booking.mode}`;
+					details.append(title, metadata);
+					const status = document.createElement('span');
+					status.textContent = booking.status;
+					row.append(details, status);
+					list.appendChild(row);
+				});
+			} catch (error) {
+				showBanner('Could not load admin data', error.message, 'info');
+			}
+		}
+
+		async function persistBooking(booking) {
+			try {
+				await tutorApi('booking', {
+					tutorName: booking.tutor,
+					mode: booking.mode,
+					status: booking.status,
+					scheduledFor: booking.when
+				});
+				return true;
+			} catch (error) {
+				showBanner('Could not save session', error.message, 'info');
+				return false;
+			}
+		}
+
+		btnStudentMode.addEventListener("click", () => {
+			btnStudentMode.classList.add("active");
+			btnTutorMode.classList.remove("active");
+			studentView.classList.remove("hidden");
+			tutorView.classList.add("hidden");
+		});
+
+		btnTutorMode.addEventListener("click", () => {
+			btnTutorMode.classList.add("active");
+			btnStudentMode.classList.remove("active");
+			tutorView.classList.remove("hidden");
+			studentView.classList.add("hidden");
+		});
+
+		authButton.addEventListener("click", () => {
+			if (isLoggedIn) {
+				studentDashboard.hidden = false;
+				document.getElementById("studentDashboard").scrollIntoView({ behavior: "smooth", block: "start" });
+				showBanner("Dashboard opened", "You can jump back into tutoring or change your upcoming plan.", "info");
+			} else {
+				toggleAuthModal(true);
+			}
+		});
+
+		function renderTutorPickerList() {
+			const listContainer = document.getElementById('studentTutorList');
+			if (!listContainer) return;
+			listContainer.innerHTML = tutorChatsData.map((tutor, idx) => `
+				<div class="tutor-picker-item ${idx === activeTutorChatIndex ? 'active' : ''}" onclick="switchActiveChat(${idx})">
+					<div class="picker-avatar">${tutor.initial}</div>
+					<div style="overflow:hidden;">
+						<strong style="display:block; font-size:0.86rem; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${tutor.name}</strong>
+						<span style="font-size:0.75rem; color:var(--muted); white-space:nowrap; text-overflow:ellipsis; overflow:hidden; display:block;">${tutor.subject}</span>
+					</div>
+				</div>
+			`).join('');
+		}
+
+		function switchActiveChat(idx) {
+			activeTutorChatIndex = idx;
+			renderTutorPickerList();
+			renderChatMessages();
+		}
+
+		function renderChatMessages() {
+			const box = document.getElementById('studentChatBox');
+			if (!box) return;
+			const currentChat = tutorChatsData[activeTutorChatIndex];
+			box.replaceChildren();
+			currentChat.history.forEach((msg) => {
+				const message = document.createElement('div');
+				message.className = `chat-msg ${msg.sender}`;
+				message.textContent = `${msg.sender === 'incoming' ? currentChat.name.split(' ')[0] + ': ' : ''}${msg.text}`;
+				box.appendChild(message);
+			});
+			box.scrollTop = box.scrollHeight;
+		}
+
+		function updateProfileUI() {
+			profilePill.hidden = false;
+			profileName.textContent = currentUserName;
+			dashboardGreeting.textContent = `Welcome back, ${currentUserName} — your next study win is ready.`;
+			nextSessionTitle.textContent = pendingBooking && pendingBooking.status === 'accepted'
+				? `Live session with ${pendingBooking.tutor}`
+				: pendingBooking && pendingBooking.mode === 'plan'
+					? `Planned session with ${pendingBooking.tutor}`
+					: 'Physics review in 20 min';
+			nextSessionMeta.textContent = pendingBooking && pendingBooking.status === 'accepted'
+				? `Accepted • ${pendingBooking.tutor} • ${pendingBooking.when}`
+				: pendingBooking && pendingBooking.mode === 'plan'
+					? `Saved for ${pendingBooking.when}`
+					: 'with Noah R. • CU Boulder';
+		}
+
+		function showBanner(title, detail, tone = "success") {
+			matchBanner.hidden = false;
+			matchBanner.className = `match-banner ${tone}`;
+			matchBanner.innerHTML = `<div><strong>${title}</strong><span>${detail}</span></div>`;
+			matchBanner.scrollIntoView({ behavior: "smooth", block: "center" });
+		}
+
+		function renderWaitRoom() {
+			if (!pendingBooking) {
+				waitRoomCard.hidden = true;
+				return;
+			}
+			waitRoomCard.hidden = false;
+			waitRoomStatus.classList.toggle('accepted', pendingBooking.status === 'accepted');
+			waitRoomStatus.textContent = pendingBooking.status === 'accepted'
+				? 'Tutor accepted your request'
+				: pendingBooking.mode === 'plan'
+					? 'Session saved for later'
+					: 'Waiting for tutor acceptance';
+			waitRoomTitle.textContent = pendingBooking.status === 'accepted'
+				? `Your room is ready with ${pendingBooking.tutor}`
+				: `Right-now session request is live for ${pendingBooking.tutor}`;
+			waitRoomList.innerHTML = pendingBooking.status === 'accepted'
+				? '<li>Tutor accepted your request.</li><li>Your room is ready to open.</li><li>Join this session whenever you are ready.</li>'
+				: pendingBooking.mode === 'plan'
+					? '<li>Your study plan was saved.</li><li>We will notify you closer to the time.</li><li>You can still change the slot before it starts.</li>'
+					: '<li>Your request was sent to nearby tutors.</li><li>We will keep the room open until someone accepts.</li><li>Expect a response in a few moments.</li>';
+			updateProfileUI();
+		}
+
+		function renderCalendarEvents(eventsEl, state) {
+			if (!eventsEl) return;
+			eventsEl.innerHTML = state.events
+				.map((eventItem) => `
+					<div class="calendar-event">
+						<div><strong>${calendarMonthLabel.split(' ')[0]} ${eventItem.day} • ${eventItem.time}</strong><span>${eventItem.title}</span></div>
+						<span>${eventItem.tag}</span>
+					</div>
+				`)
+				.join('');
+		}
+
+		function renderCalendarMonth(state, summaryEl, eventsEl) {
+			const gridEl = document.getElementById(state.gridId);
+			if (!gridEl || !summaryEl) return;
+			const monthIndex = currentDate.getMonth();
+			const year = currentDate.getFullYear();
+			const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+			const firstDay = new Date(year, monthIndex, 1).getDay();
+			gridEl.innerHTML = '';
+
+			calendarWeekdays.forEach((weekday) => {
+				const cell = document.createElement('div');
+				cell.className = 'calendar-weekday';
+				cell.textContent = weekday;
+				gridEl.appendChild(cell);
+			});
+
+			for (let empty = 0; empty < firstDay; empty += 1) {
+				const placeholder = document.createElement('div');
+				placeholder.className = 'calendar-date muted';
+				placeholder.setAttribute('aria-hidden', 'true');
+				gridEl.appendChild(placeholder);
+			}
+
+			for (let day = 1; day <= daysInMonth; day += 1) {
+				const button = document.createElement('button');
+				button.type = 'button';
+				button.className = 'calendar-date';
+				button.textContent = String(day);
+				button.dataset.day = String(day);
+				if (day === currentDate.getDate()) button.classList.add('today');
+				if (state.events.some((eventItem) => eventItem.day === day)) button.classList.add('has-event');
+				if (day === state.selectedDay) button.classList.add('active');
+				button.addEventListener('click', () => {
+					state.selectedDay = day;
+					renderCalendarMonth(state, summaryEl, eventsEl);
+				});
+				gridEl.appendChild(button);
+			}
+
+			summaryEl.textContent = `${summaryEl.id === 'tutorCalendarSummary' ? 'Open:' : 'Selected:'} ${calendarMonthLabel.split(' ')[0]} ${state.selectedDay} • ${state.selectedTime}`;
+			summaryEl.dataset.selection = `${calendarMonthLabel.split(' ')[0]} ${state.selectedDay} • ${state.selectedTime}`;
+			renderCalendarEvents(eventsEl, state);
+		}
+
+		function attachCalendarBehavior(state, slotsEl) {
+			if (!slotsEl) return;
+			slotsEl.querySelectorAll('.time-slot').forEach((slotBtn) => {
+				slotBtn.addEventListener('click', () => {
+					slotsEl.querySelectorAll('.time-slot').forEach((btn) => btn.classList.remove('active'));
+					slotBtn.classList.add('active');
+					state.selectedTime = slotBtn.dataset.time;
+					renderCalendarMonth(state, document.getElementById(state.summaryId), document.getElementById(state.eventsId));
+				});
+			});
+			renderCalendarMonth(state, document.getElementById(state.summaryId), document.getElementById(state.eventsId));
+		}
+
+		async function saveStudentSlot() {
+			const selection = studentCalendarSummary?.dataset.selection || `Aug ${calendarStates.student.selectedDay} • ${calendarStates.student.selectedTime}`;
+			pendingBooking = {
+				mode: 'plan',
+				status: 'saved',
+				tutor: tutorChatsData[activeTutorChatIndex].name,
+				when: selection
+			};
+			if (!await persistBooking(pendingBooking)) return;
+			renderWaitRoom();
+			showBanner('Calendar saved', `Your study slot for ${selection} is saved with ${tutorChatsData[activeTutorChatIndex].name}.`, 'success');
+			tutorChatsData[activeTutorChatIndex].history.push({ sender: 'incoming', text: `Confirmed our session for ${selection}!` });
+			renderChatMessages();
+		}
+
+		async function saveTutorAvailability() {
+			const selection = tutorCalendarSummary?.dataset.selection || `Aug ${calendarStates.tutor.selectedDay} • ${calendarStates.tutor.selectedTime}`;
+			try {
+				await tutorApi('availability', { scheduledFor: selection });
+			} catch (error) {
+				showBanner('Could not save availability', error.message, 'info');
+				return;
+			}
+			showBanner('Availability updated', `You are open for sessions on ${selection}.`, 'info');
+		}
+
+		async function sendStudentChat() {
+			const input = document.getElementById('studentChatInput');
+			if (input && input.value.trim()) {
+				const message = input.value.trim();
+				try {
+					await tutorApi('message', { tutorName: tutorChatsData[activeTutorChatIndex].name, sender: 'student', body: message });
+				} catch (error) {
+					showBanner('Could not send message', error.message, 'info');
+					return;
+				}
+				tutorChatsData[activeTutorChatIndex].history.push({ sender: 'outgoing', text: message });
+				input.value = '';
+				renderChatMessages();
+			}
+		}
+
+		async function sendTutorChat() {
+			const input = document.getElementById('tutorChatInput');
+			const box = document.getElementById('tutorChatBox');
+			if (input && input.value.trim()) {
+				try {
+					await tutorApi('message', { tutorName: 'Active student', sender: 'tutor', body: input.value.trim() });
+				} catch (error) {
+					showBanner('Could not send message', error.message, 'info');
+					return;
+				}
+				const msg = document.createElement('div');
+				msg.className = 'chat-msg outgoing';
+				msg.textContent = input.value.trim();
+				box.appendChild(msg);
+				input.value = '';
+				box.scrollTop = box.scrollHeight;
+			}
+		}
+
+		document.querySelectorAll('.chat-input-row input').forEach((input) => {
+			input.addEventListener('keydown', (e) => {
+				if (e.key === 'Enter') {
+					e.preventDefault();
+					if (input.id === 'studentChatInput') {
+						sendStudentChat();
+					} else if (input.id === 'tutorChatInput') {
+						sendTutorChat();
+					}
+				}
+			});
+		});
+
+		const tutorStatusToggle = document.getElementById("tutorStatusToggle");
+		const statusLabel = document.getElementById("statusLabel");
+
+		if (tutorStatusToggle) {
+			tutorStatusToggle.addEventListener("change", (e) => {
+				if (e.target.checked) {
+					statusLabel.textContent = "Online & Accepting";
+					statusLabel.style.color = "#15803d";
+				} else {
+					statusLabel.textContent = "Offline / Paused";
+					statusLabel.style.color = "#627085";
+				}
+			});
+		}
+
+		document.querySelectorAll('.accept-request-btn').forEach((btn) => {
+			btn.addEventListener('click', () => {
+				if (pendingBooking) {
+					pendingBooking.status = 'accepted';
+					renderWaitRoom();
+					showBanner("Tutor accepted", `Your pending session is now confirmed.`, "success");
+				}
+			});
+		});
+
+		const sessionTabs = document.querySelectorAll('.slider-tab');
+		const durationRange = document.getElementById('durationRange');
+		const durationValue = document.getElementById('durationValue');
+
+		sessionTabs.forEach(tab => {
+			tab.addEventListener('click', () => {
+				sessionTabs.forEach(t => t.classList.remove('active'));
+				tab.classList.add('active');
+				const defaultTime = tab.getAttribute('data-default-time');
+				durationRange.value = defaultTime;
+				durationValue.textContent = defaultTime;
+			});
+		});
+
+		if (durationRange) {
+			durationRange.addEventListener('input', (e) => {
+				durationValue.textContent = e.target.value;
+			});
+		}
+
+		const execBtns = document.querySelectorAll('.exec-btn');
+		const actionBtn = document.getElementById('actionBtn');
+
+		execBtns.forEach(btn => {
+			btn.addEventListener('click', () => {
+				execBtns.forEach(b => b.classList.remove('active'));
+				btn.classList.add('active');
+				currentExecutionMode = btn.getAttribute('data-mode');
+				if (currentExecutionMode === 'immediate') {
+					actionBtn.textContent = 'Find Tutors Now ⚡';
+				} else {
+					actionBtn.textContent = 'Schedule Study Plan 📅';
+				}
+			});
+		});
+
+		async function handleMatchAction() {
+			const activeVibe = document.querySelector('.slider-tab.active').textContent.trim();
+			const duration = durationRange.value;
+			if (!isLoggedIn) {
+				showBanner("Sign in first", "Create an account or log in so we can place your request in the wait room.", "info");
+				toggleAuthModal(true);
+				return;
+			}
+			if (currentExecutionMode === 'immediate') {
+				pendingBooking = {
+					mode: 'immediate',
+					status: 'waiting',
+					tutor: 'Maya K.',
+					when: `${duration} min • ${activeVibe}`
+				};
+				if (!await persistBooking(pendingBooking)) return;
+				renderWaitRoom();
+				showBanner("Wait room open", `Your request is live for ${duration} minutes. A tutor will be assigned shortly.`, "success");
+				setTimeout(() => {
+					pendingBooking.status = 'accepted';
+					renderWaitRoom();
+					showBanner("Tutor accepted", `Your session with ${pendingBooking.tutor} is ready to begin.`, "success");
+				}, 2200);
+				document.getElementById('match').scrollIntoView({ behavior: 'smooth', block: 'start' });
+			} else {
+				openPlannerModal();
+			}
+		}
+
+		function toggleAuthModal(show) {
+			document.getElementById('authModal').style.display = show ? 'flex' : 'none';
+		}
+
+		function switchAuthTab(tab) {
+			const tabs = document.querySelectorAll('.auth-tab');
+			tabs.forEach(t => t.classList.remove('active'));
+			const nameGroup = document.getElementById('nameGroup');
+			const submitBtn = document.getElementById('authSubmitBtn');
+			if (tab === 'login') {
+				tabs[0].classList.add('active');
+				nameGroup.style.display = 'none';
+				nameGroup.querySelector('input').required = false;
+				submitBtn.textContent = 'Log In';
+			} else {
+				tabs[1].classList.add('active');
+				nameGroup.style.display = 'flex';
+				nameGroup.querySelector('input').required = true;
+				submitBtn.textContent = 'Create Account';
+			}
+		}
+
+		async function handleAuthSubmit(event) {
+			event.preventDefault();
+			const inputName = document.querySelector('#nameGroup input');
+			const email = document.querySelector('#authForm input[type="email"]').value.trim();
+			const password = document.querySelector('#authForm input[type="password"]').value;
+			const signingUp = document.querySelector('.auth-tab.active').textContent.trim() === 'Sign Up';
+			try {
+				const result = await tutorApi(signingUp ? 'signup' : 'login', {
+					name: inputName.value.trim(), email, password
+				});
+				activateSignedInUI(result.user);
+			} catch (error) {
+				showBanner(signingUp ? 'Could not create account' : 'Could not log in', error.message, 'info');
+				return;
+			}
+			if (currentUserIsAdmin) loadAdminDashboard();
+			showBanner("Welcome to your dashboard", `Your student & tutor portal views are now active for ${currentUserName}.`, "success");
+			toggleAuthModal(false);
+		}
+
+		function openPlannerModal(tutorName = null) {
+			selectedPlannerTutor = tutorName;
+			const modal = document.getElementById('plannerModal');
+			modal.style.display = 'flex';
+			if (tutorName) {
+				document.getElementById('plannerTutorName').textContent = tutorName;
+			}
+		}
+
+		function closePlannerModal() {
+			document.getElementById('plannerModal').style.display = 'none';
+		}
+
+		async function confirmPlannerSession() {
+			const date = document.getElementById('sessionDate').value;
+			const time = document.getElementById('sessionTime').value;
+			const tutorLabel = selectedPlannerTutor || 'your preferred tutor';
+			if (!date || !time) {
+				showBanner("Pick a date and time", "Choose both a day and time so we can find a tutor for you.", "info");
+				return;
+			}
+			pendingBooking = {
+				mode: 'plan',
+				status: 'saved',
+				tutor: tutorLabel,
+				when: `${date} • ${time}`
+			};
+			if (!await persistBooking(pendingBooking)) return;
+			renderWaitRoom();
+			closePlannerModal();
+			showBanner("Session planned", `${tutorLabel} • ${date} at ${time} • your tutor request is saved.`, "success");
+			document.getElementById('match').scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}
+
+		const subjectChips = document.querySelectorAll("#subjectFilterRow .chip");
+		const tutorCards = document.querySelectorAll("#tutorDirectory .tutor-card");
+		const tutorSearch = document.getElementById("tutorSearch");
+		const searchScope = document.getElementById("searchScope");
+		const searchButton = document.getElementById("searchButton");
+
+		function applyTutorFilters() {
+			const selectedSubject = document.querySelector("#subjectFilterRow .chip.active")?.dataset.subject || "all";
+			const query = tutorSearch.value.trim().toLowerCase();
+			const scope = searchScope.value;
+
+			tutorCards.forEach((card) => {
+				const cardSubjects = card.dataset.subjects.split(",");
+				const subjectMatch = selectedSubject === "all" || cardSubjects.includes(selectedSubject);
+				let searchMatch = true;
+				if (query) {
+					const targetValue = scope === "class"
+						? card.dataset.class?.toLowerCase() || ""
+						: scope === "tutor"
+							? card.dataset.tutor?.toLowerCase() || ""
+							: scope === "school"
+								? card.dataset.school?.toLowerCase() || ""
+								: `${card.dataset.search || ""}`.toLowerCase();
+					searchMatch = targetValue.includes(query);
+				}
+				card.style.display = subjectMatch && searchMatch ? "flex" : "none";
+			});
+		}
+
+		subjectChips.forEach((chip) => {
+			chip.addEventListener("click", () => {
+				subjectChips.forEach((c) => c.classList.remove("active"));
+				chip.classList.add("active");
+				applyTutorFilters();
+			});
+		});
+
+		if (tutorSearch) {
+			tutorSearch.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") {
+					applyTutorFilters();
+					showBanner("Search updated", "Tutors now match your class, tutor, or school query.", "info");
+				}
+			});
+		}
+
+		if (searchButton) {
+			searchButton.addEventListener("click", () => {
+				applyTutorFilters();
+				showBanner("Search updated", "Tutors now match your class, tutor, or school query.", "info");
+			});
+		}
+
+		if (searchScope) {
+			searchScope.addEventListener("change", applyTutorFilters);
+		}
+
+		function filterByCourse(subject) {
+			document.getElementById("match").scrollIntoView({ behavior: "smooth", block: "start" });
+			const targetChip = document.querySelector(`#subjectFilterRow .chip[data-subject="${subject}"]`);
+			if (targetChip) {
+				targetChip.click();
+			}
+		}
+
+		document.querySelectorAll(".book-btn").forEach((btn) => {
+			btn.addEventListener("click", async () => {
+				const tutorName = btn.dataset.name;
+				if (isLoggedIn) {
+					if (currentExecutionMode === 'immediate') {
+						pendingBooking = { mode: 'immediate', status: 'waiting', tutor: tutorName, when: 'right now' };
+						if (!await persistBooking(pendingBooking)) return;
+						renderWaitRoom();
+						showBanner("Wait room open", `Your request is live for ${tutorName}.`, "success");
+						setTimeout(() => {
+							pendingBooking.status = 'accepted';
+							renderWaitRoom();
+							showBanner("Tutor accepted", `Your session with ${tutorName} is ready.`, "success");
+						}, 2200);
+					} else {
+						openPlannerModal(tutorName);
+					}
+				} else {
+					showBanner("Sign in to lock in a session", "Create an account or log in to choose a day and time for your tutor.", "info");
+					toggleAuthModal(true);
+				}
+			});
+		});
+
+		document.querySelectorAll(".faq-item button").forEach((button) => {
+			button.addEventListener("click", () => {
+				const item = button.parentElement;
+				const isOpen = item.classList.contains("open");
+				document.querySelectorAll(".faq-item").forEach((i) => i.classList.remove("open"));
+				if (!isOpen) {
+					item.classList.add("open");
+				}
+			});
+		});
+
+		renderTutorPickerList();
+		renderChatMessages();
+		attachCalendarBehavior(calendarStates.student, studentCalendarSlots);
+		attachCalendarBehavior(calendarStates.tutor, tutorCalendarSlots);
+		updateProfileUI();
+		renderWaitRoom();
+		applyTutorFilters();
+		document.getElementById('sessionDate').min = currentDate.toISOString().split('T')[0];
+		refreshAdminButton.addEventListener('click', loadAdminDashboard);
+		restoreSession();
+	</script>
+</body>
+</html>
