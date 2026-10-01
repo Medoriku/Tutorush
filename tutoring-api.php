@@ -195,6 +195,9 @@ try {
     if (!in_array('is_online', $userColumns, true)) {
         $database->exec('ALTER TABLE users ADD COLUMN is_online INTEGER NOT NULL DEFAULT 0');
     }
+    if (!in_array('tutor_subjects', $userColumns, true)) {
+        $database->exec("ALTER TABLE users ADD COLUMN tutor_subjects TEXT NOT NULL DEFAULT ''");
+    }
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
         $database->exec('PRAGMA foreign_keys = OFF');
@@ -302,6 +305,7 @@ try {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_id INTEGER NOT NULL,
         tutor_id INTEGER NOT NULL,
+        subject TEXT NOT NULL,
         help_type TEXT NOT NULL,
         duration INTEGER NOT NULL,
         note TEXT,
@@ -310,6 +314,10 @@ try {
         FOREIGN KEY(student_id) REFERENCES users(id),
         FOREIGN KEY(tutor_id) REFERENCES users(id)
     )');
+    $matchColumns = $database->query('PRAGMA table_info(match_requests)')->fetchAll(PDO::FETCH_COLUMN, 1);
+    if (!in_array('subject', $matchColumns, true)) {
+        $database->exec("ALTER TABLE match_requests ADD COLUMN subject TEXT NOT NULL DEFAULT 'General tutoring'");
+    }
     $database->exec('CREATE TABLE IF NOT EXISTS email_verifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -321,7 +329,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'find-online-tutor', 'tutor-requests', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -479,26 +487,41 @@ try {
         respond(200, ['online' => (bool) $status]);
     }
 
+    if ($action === 'set-tutor-subjects') {
+        $userId = requireUserId();
+        $subjects = $request['subjects'] ?? [];
+        if (!is_array($subjects) || count($subjects) > 20) respond(422, ['error' => 'Choose up to 20 subjects.']);
+        $subjects = array_values(array_unique(array_filter(array_map(static fn($subject) => trim((string) $subject), $subjects))));
+        $statement = $database->prepare('UPDATE users SET tutor_subjects = ? WHERE id = ?');
+        $statement->execute([json_encode($subjects, JSON_UNESCAPED_UNICODE), $userId]);
+        respond(200, ['subjects' => $subjects]);
+    }
+
     if ($action === 'find-online-tutor') {
         $userId = requireUserId();
+        $subject = validateText($request['subject'] ?? '', 80, 'Class or topic');
         $helpType = validateText($request['helpType'] ?? '', 60, 'Help type');
         $duration = filter_var($request['duration'] ?? null, FILTER_VALIDATE_INT);
         $note = trim((string) ($request['note'] ?? ''));
         if (!$duration || !in_array($duration, [30, 60, 90, 120], true) || mb_strlen($note) > 500) {
             respond(422, ['error' => 'Choose a valid session duration and keep your note under 500 characters.']);
         }
-        $statement = $database->prepare("SELECT id, name, role FROM users WHERE id != ? AND is_online = 1 AND role IN ('tutor', 'both') ORDER BY RANDOM() LIMIT 1");
+        $statement = $database->prepare("SELECT id, name, role, tutor_subjects FROM users WHERE id != ? AND is_online = 1 AND role IN ('tutor', 'both') ORDER BY RANDOM()");
         $statement->execute([$userId]);
-        $tutor = $statement->fetch(PDO::FETCH_ASSOC);
+        $tutor = null;
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+            $subjects = json_decode((string) $candidate['tutor_subjects'], true);
+            if (is_array($subjects) && in_array($subject, $subjects, true)) { $tutor = $candidate; break; }
+        }
         if (!$tutor) respond(404, ['error' => 'No tutors are online right now. Try again soon.']);
-        $requestInsert = $database->prepare('INSERT INTO match_requests (student_id, tutor_id, help_type, duration, note) VALUES (?, ?, ?, ?, ?)');
-        $requestInsert->execute([$userId, (int) $tutor['id'], $helpType, $duration, $note ?: null]);
-        respond(200, ['tutor' => ['id' => (int) $tutor['id'], 'name' => $tutor['name'], 'role' => $tutor['role']], 'request' => ['id' => (int) $database->lastInsertId(), 'helpType' => $helpType, 'duration' => $duration, 'note' => $note]]);
+        $requestInsert = $database->prepare('INSERT INTO match_requests (student_id, tutor_id, subject, help_type, duration, note) VALUES (?, ?, ?, ?, ?, ?)');
+        $requestInsert->execute([$userId, (int) $tutor['id'], $subject, $helpType, $duration, $note ?: null]);
+        respond(200, ['tutor' => ['id' => (int) $tutor['id'], 'name' => $tutor['name'], 'role' => $tutor['role']], 'request' => ['id' => (int) $database->lastInsertId(), 'subject' => $subject, 'helpType' => $helpType, 'duration' => $duration, 'note' => $note]]);
     }
 
     if ($action === 'tutor-requests') {
         $userId = requireUserId();
-        $statement = $database->prepare("SELECT m.id, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' ORDER BY m.id DESC");
+        $statement = $database->prepare("SELECT m.id, m.subject, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' ORDER BY m.id DESC");
         $statement->execute([$userId]);
         respond(200, ['requests' => $statement->fetchAll(PDO::FETCH_ASSOC)]);
     }
