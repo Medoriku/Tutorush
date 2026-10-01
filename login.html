@@ -95,7 +95,13 @@
         return;
       }
 
-      window.location.href = `index.html?role=${encodeURIComponent(loginData.user.role)}#dashboard`;
+      const dashboardByRole = {
+        student: 'student-dashboard.html',
+        tutor: 'tutor-dashboard.html',
+        both: 'student-dashboard.html',
+        admin: 'admin-dashboard.html'
+      };
+      window.location.href = dashboardByRole[loginData.user.role] || 'student-dashboard.html';
     } catch (error) {
       loginStatus.textContent = window.location.protocol === 'file:'
         ? 'This page is opened from your computer. Open it through your hosted site to log in.'
