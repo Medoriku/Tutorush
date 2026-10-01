@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check Your Email | TutorRush</title>
+  <style>
+    :root{--ink:#2d2443;--pink:#ffb8d9;--yellow:#fff08e;--blue:#bbd4ff}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;color:var(--ink);font-family:Arial,sans-serif;background:linear-gradient(120deg,#ffeaf4,#f6ebff 48%,#e5f7ca);background-size:160% 160%;animation:bg 16s ease-in-out infinite alternate}main{width:min(100% - 2.5rem,540px);padding:clamp(2rem,6vw,4rem);border:1px solid #fff;border-radius:1.6rem;background:#ffffffb8;box-shadow:0 1rem 2.5rem #69509920;text-align:center}h1{margin:0;font-size:clamp(3rem,8vw,5.8rem);line-height:.86;letter-spacing:-.07em}h1 em{font-family:Georgia,serif;font-weight:400}p{line-height:1.55}.email{display:inline-block;margin:.5rem 0 1rem;padding:.65rem .9rem;border-radius:999px;background:var(--blue);font-weight:700;word-break:break-word}.resend{margin-top:1.5rem;padding:.85rem 1.15rem;border:1px solid var(--ink);border-radius:999px;background:var(--yellow);box-shadow:.14rem .14rem 0 var(--ink);cursor:pointer;font:600 .85rem Arial}.resend:hover{background:var(--pink);transform:translateY(-2px)}.status{min-height:1.5rem;color:#9b3f62;font-size:.85rem}a{display:inline-block;margin-top:1rem;color:var(--ink);text-underline-offset:.25em}@keyframes bg{from{background-position:0 30%}to{background-position:100% 70%}}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>check your<br><em>email.</em></h1>
+    <p>We sent a confirmation link to:</p>
+    <div class="email" id="email">your email address</div>
+    <p>Click the link in that email to officially activate your TutorRush account. The link expires in 24 hours.</p>
+    <button class="resend" id="resend" type="button">resend confirmation email</button>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <a href="login.html">Back to log in</a>
+  </main>
+  <script>
+    const email = new URLSearchParams(location.search).get('email') || '';
+    const emailLabel = document.getElementById('email');
+    const status = document.getElementById('status');
+    if (email) emailLabel.textContent = email;
+    document.getElementById('resend').addEventListener('click', async () => {
+      if (!email) { status.textContent = 'Enter your email from the signup page to resend the message.'; return; }
+      const button = document.getElementById('resend');
+      button.disabled = true;
+      button.textContent = 'sending...';
+      try {
+        const response = await fetch('tutoring-api.php?action=resend-verification', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'resend-verification', email}) });
+        const data = await response.json();
+        status.textContent = data.message || data.error || 'Check your inbox for the new confirmation email.';
+      } catch (error) { status.textContent = 'We could not reach TutorRush. Please try again.'; }
+      finally { button.disabled = false; button.textContent = 'resend confirmation email'; }
+    });
+  </script>
+</body>
+</html>
