@@ -263,7 +263,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -422,6 +422,33 @@ try {
             respond(404, ['error' => 'User not found or role is unchanged.']);
         }
         respond(200, ['message' => 'User role updated.', 'role' => $role]);
+    }
+
+    if ($action === 'admin-delete-user') {
+        requireAdmin();
+        $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$userId) respond(422, ['error' => 'A valid user is required.']);
+        if ($userId === (int) ($_SESSION['tutorrush_user_id'] ?? 0)) {
+            respond(422, ['error' => 'You cannot delete your own admin account.']);
+        }
+        $database->beginTransaction();
+        try {
+            foreach (['password_resets' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id'] as $table => $column) {
+                $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");
+                $statement->execute([$userId]);
+            }
+            $statement = $database->prepare('DELETE FROM users WHERE id = ?');
+            $statement->execute([$userId]);
+            if ($statement->rowCount() === 0) {
+                $database->rollBack();
+                respond(404, ['error' => 'User not found.']);
+            }
+            $database->commit();
+        } catch (Throwable $exception) {
+            $database->rollBack();
+            throw $exception;
+        }
+        respond(200, ['message' => 'User deleted.']);
     }
 } catch (PDOException $exception) {
     respond(500, ['error' => 'The TutorRush database is unavailable.']);

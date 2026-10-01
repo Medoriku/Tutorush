@@ -1131,8 +1131,20 @@
 	</style>
 </head>
 <body>
-
-	<div class="shell">
+	<div id="dashboardRouter" style="display:grid;min-height:100vh;place-items:center;font-family:Arial,sans-serif;color:#2d2443;">Opening your dashboard...</div>
+	<script>
+		(async () => {
+			const routes = { student: 'student-dashboard.html', tutor: 'tutor-dashboard.html', both: 'student-dashboard.html', admin: 'admin-dashboard.html' };
+			try {
+				const response = await fetch('tutoring-api.php?action=session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'session' }) });
+				const data = await response.json();
+				window.location.replace(data.user ? (routes[data.user.role] || routes.student) : 'student-landing.html');
+			} catch (error) {
+				window.location.replace('student-landing.html');
+			}
+		})();
+	</script>
+	<div class="shell" hidden>
 		<!-- Top Bar -->
 		<header class="topbar">
 			<div class="brand" onclick="window.scrollTo({top:0, behavior:'smooth'})">
