@@ -263,7 +263,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'login', 'request-password-reset', 'reset-password', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -402,7 +402,26 @@ try {
             'messages' => (int) $database->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
         ];
         $recentBookings = $database->query('SELECT b.tutor_name, b.mode, b.status, b.scheduled_for, u.name AS student_name FROM bookings b JOIN users u ON u.id = b.student_id ORDER BY b.id DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
-        respond(200, ['summary' => $summary, 'recentBookings' => $recentBookings]);
+        $users = $database->query('SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC, id DESC')->fetchAll(PDO::FETCH_ASSOC);
+        respond(200, ['summary' => $summary, 'recentBookings' => $recentBookings, 'users' => $users]);
+    }
+
+    if ($action === 'admin-set-role') {
+        requireAdmin();
+        $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
+        $role = $request['role'] ?? '';
+        if (!$userId || !in_array($role, ['student', 'tutor', 'both', 'admin'], true)) {
+            respond(422, ['error' => 'A valid user and role are required.']);
+        }
+        if ($userId === (int) ($_SESSION['tutorrush_user_id'] ?? 0) && $role !== 'admin') {
+            respond(422, ['error' => 'You cannot remove your own admin access.']);
+        }
+        $statement = $database->prepare('UPDATE users SET role = ? WHERE id = ?');
+        $statement->execute([$role, $userId]);
+        if ($statement->rowCount() === 0) {
+            respond(404, ['error' => 'User not found or role is unchanged.']);
+        }
+        respond(200, ['message' => 'User role updated.', 'role' => $role]);
     }
 } catch (PDOException $exception) {
     respond(500, ['error' => 'The TutorRush database is unavailable.']);

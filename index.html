@@ -1147,6 +1147,7 @@
 			<div class="mode-toggle-group">
 				<button class="mode-btn active" id="btnStudentMode">Student View</button>
 				<button class="mode-btn" id="btnTutorMode">Tutor Portal ⚡</button>
+				<button class="mode-btn" id="btnAdminMode" hidden>Admin View</button>
 			</div>
 
 			<nav class="nav" aria-label="Primary Nav">
@@ -1642,6 +1643,10 @@
 						<h4 style="margin: 0;">Recent session requests</h4>
 						<div class="calendar-events" id="adminBookingList" style="margin-top: 0.75rem;"></div>
 					</div>
+					<div class="feature-card" style="margin-top: 1rem; overflow-x: auto;">
+						<h4 style="margin: 0 0 0.75rem;">All users</h4>
+						<div id="adminUsersList"></div>
+					</div>
 				</div>
 			</section>
 		</div>
@@ -1700,6 +1705,7 @@
 	<script>
 		const btnStudentMode = document.getElementById("btnStudentMode");
 		const btnTutorMode = document.getElementById("btnTutorMode");
+		const btnAdminMode = document.getElementById("btnAdminMode");
 		const studentView = document.getElementById("studentView");
 		const tutorView = document.getElementById("tutorView");
 		const authButton = document.getElementById("authButton");
@@ -1791,13 +1797,17 @@
 			studentDashboard.hidden = false;
 			if (tutorPortalExtras) tutorPortalExtras.hidden = false;
 			adminPanel.hidden = !currentUserIsAdmin;
+			btnAdminMode.hidden = !currentUserIsAdmin;
 			updateProfileUI();
 		}
 
 		function openRoleDashboard(role) {
-			if (role === 'tutor' || role === 'admin') {
+			if (role === 'admin') {
+				btnAdminMode.click();
+				return;
+			}
+			if (role === 'tutor') {
 				btnTutorMode.click();
-				if (role === 'admin') adminPanel.hidden = false;
 				return;
 			}
 			btnStudentMode.click();
@@ -1835,9 +1845,7 @@
 				list.replaceChildren();
 				if (!result.recentBookings.length) {
 					list.textContent = 'No session requests yet.';
-					return;
-				}
-				result.recentBookings.forEach((booking) => {
+				} else result.recentBookings.forEach((booking) => {
 					const row = document.createElement('div');
 					row.className = 'calendar-event';
 					const details = document.createElement('div');
@@ -1851,8 +1859,63 @@
 					row.append(details, status);
 					list.appendChild(row);
 				});
+				renderAdminUsers(result.users);
 			} catch (error) {
 				showBanner('Could not load admin data', error.message, 'info');
+			}
+		}
+
+		function renderAdminUsers(users) {
+			const container = document.getElementById('adminUsersList');
+			container.replaceChildren();
+			if (!users.length) {
+				container.textContent = 'No users yet.';
+				return;
+			}
+			const table = document.createElement('table');
+			table.style.cssText = 'width:100%; border-collapse:collapse; font-size:0.88rem;';
+			const header = document.createElement('tr');
+			['Name', 'Email', 'Role', 'Action'].forEach((label) => {
+				const cell = document.createElement('th');
+				cell.textContent = label;
+				cell.style.cssText = 'padding:0.65rem; text-align:left; border-bottom:1px solid var(--border);';
+				header.appendChild(cell);
+			});
+			table.appendChild(header);
+			users.forEach((user) => {
+				const row = document.createElement('tr');
+				[user.name, user.email, user.role].forEach((value) => {
+					const cell = document.createElement('td');
+					cell.textContent = value;
+					cell.style.cssText = 'padding:0.65rem; border-bottom:1px solid var(--border);';
+					row.appendChild(cell);
+				});
+				const actionCell = document.createElement('td');
+				actionCell.style.cssText = 'padding:0.65rem; border-bottom:1px solid var(--border);';
+				const select = document.createElement('select');
+				['student', 'tutor', 'both', 'admin'].forEach((role) => {
+					const option = document.createElement('option');
+					option.value = role;
+					option.textContent = role;
+					option.selected = role === user.role;
+					select.appendChild(option);
+				});
+				select.addEventListener('change', () => setAdminUserRole(user.id, select.value));
+				actionCell.appendChild(select);
+				row.appendChild(actionCell);
+				table.appendChild(row);
+			});
+			container.appendChild(table);
+		}
+
+		async function setAdminUserRole(userId, role) {
+			try {
+				await tutorApi('admin-set-role', { userId, role });
+				showBanner('User role updated', `This user is now marked as ${role}.`, 'success');
+				loadAdminDashboard();
+			} catch (error) {
+				showBanner('Could not update user role', error.message, 'info');
+				loadAdminDashboard();
 			}
 		}
 
@@ -1874,6 +1937,7 @@
 		btnStudentMode.addEventListener("click", () => {
 			btnStudentMode.classList.add("active");
 			btnTutorMode.classList.remove("active");
+			btnAdminMode.classList.remove("active");
 			studentView.classList.remove("hidden");
 			tutorView.classList.add("hidden");
 		});
@@ -1881,8 +1945,21 @@
 		btnTutorMode.addEventListener("click", () => {
 			btnTutorMode.classList.add("active");
 			btnStudentMode.classList.remove("active");
+			btnAdminMode.classList.remove("active");
 			tutorView.classList.remove("hidden");
 			studentView.classList.add("hidden");
+		});
+
+		btnAdminMode.addEventListener("click", () => {
+			if (!currentUserIsAdmin) return;
+			btnAdminMode.classList.add("active");
+			btnStudentMode.classList.remove("active");
+			btnTutorMode.classList.remove("active");
+			tutorView.classList.remove("hidden");
+			studentView.classList.add("hidden");
+			adminPanel.hidden = false;
+			adminPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+			loadAdminDashboard();
 		});
 
 		authButton.addEventListener("click", () => {
