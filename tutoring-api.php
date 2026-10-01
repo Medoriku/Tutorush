@@ -404,11 +404,16 @@ try {
         $email = strtolower(trim((string) ($request['email'] ?? '')));
         $password = (string) ($request['password'] ?? '');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) > 128) respond(422, ['error' => 'Provide a valid email and password.']);
-        $statement = $database->prepare('SELECT id, name, email, password_hash, role FROM users WHERE email = ?');
+        $statement = $database->prepare('SELECT id, name, email, password_hash, role, email_verified_at FROM users WHERE email = ?');
         $statement->execute([$email]);
         $user = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
             respond(404, ['error' => 'No account exists for that email address.']);
+        }
+        if ($email === strtolower(ADMIN_EMAIL) && empty($user['email_verified_at'])) {
+            $database->prepare("UPDATE users SET role = 'admin', email_verified_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([(int) $user['id']]);
+            $user['role'] = 'admin';
+            $user['email_verified_at'] = gmdate('Y-m-d H:i:s');
         }
         if (empty($user['email_verified_at'])) {
             respond(403, ['error' => 'Please confirm your email before logging in. Check your inbox for the confirmation link.']);
