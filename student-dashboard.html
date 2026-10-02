@@ -1,4 +1,155 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Student Dashboard | TutorRush</title><style>:root{--ink:#2d2443;--pink:#ffb8d9;--yellow:#fff08e;--green:#d6fa99;--blue:#bbd4ff;--line:#d8cee7}*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--ink);font-family:Arial,sans-serif;background:linear-gradient(120deg,#ffeaf4,#f6ebff 48%,#e5f7ca);background-size:160% 160%;animation:bg 16s ease-in-out infinite alternate}header{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:min(1120px,calc(100% - 2.5rem));margin:1rem auto;padding:.6rem .8rem;border:1px solid #fff;border-radius:999px;background:#ffffffaa;backdrop-filter:blur(12px);box-shadow:0 .6rem 1.5rem #69509920}.brand{display:flex;align-items:center;gap:.6rem;color:inherit;text-decoration:none;font-weight:700}.logo{display:grid;width:2.65rem;height:2.65rem;place-items:center;border-radius:.75rem;color:#fff;background:linear-gradient(135deg,var(--pink),#dccbff,var(--blue));font-weight:800}.actions{display:flex;gap:.6rem}select,button,input,textarea{padding:.7rem .8rem;border:1px solid var(--ink);border-radius:.7rem;background:#fff;font:600 .85rem Arial;color:var(--ink)}select{appearance:none;min-width:11rem;padding-right:2.4rem;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1.5 7 7.5 13 1.5' fill='none' stroke='%232d2443' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .25rem center;background-size:.8rem auto}button{cursor:pointer;background:var(--pink);border-radius:999px;box-shadow:.1rem .1rem 0 var(--ink)}button:hover{transform:translateY(-2px)}main{width:min(100% - 2.5rem,900px);margin:3rem auto}.eyebrow{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}h1{margin:.5rem 0;font-size:clamp(3rem,7vw,6rem);line-height:.9;letter-spacing:-.06em}h1 em{font-family:Georgia,serif;font-weight:400}.lead{font-size:1.1rem;line-height:1.5}.help-panel,.match-result,.card{padding:1.5rem;border:1px solid var(--line);border-radius:1.2rem;background:#ffffffb8;box-shadow:0 .8rem 1.5rem #69509912}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.field{display:grid;gap:.4rem}.field.full{grid-column:1/-1}.field select,.field input,.field textarea{width:100%;min-width:0}.field textarea{min-height:5rem;resize:vertical}.match-result{display:none;margin-top:1.2rem;background:linear-gradient(135deg,#d6fa99,#fff08e);border-color:var(--ink);box-shadow:.25rem .25rem 0 var(--ink)}.match-result.visible{display:flex;align-items:center;justify-content:space-between;gap:1rem}.match-result h2{margin:0 0 .3rem}.match-result .badge{padding:.45rem .7rem;border-radius:999px;background:#fff;font-size:.75rem;font-weight:700}.status{min-height:1.5rem;margin-top:1rem;color:#6d617f}.error{color:#a63e63}.success{color:#3d7650}.room{display:none;position:fixed;inset:0;z-index:5;place-items:center;padding:1.5rem;background:#2d244399;backdrop-filter:blur(8px)}.room.visible{display:grid}.room-card{width:min(100%,560px);padding:2rem;border:1px solid #fff;border-radius:1.5rem;background:#fff;box-shadow:0 1rem 3rem #2d244366}.room-card h2{font-size:2.2rem;margin:0}.room-card .room-top{display:flex;justify-content:space-between;gap:1rem;align-items:start}.room-card .live{color:#278555;font-weight:700}.room-chat{min-height:9rem;margin:1.5rem 0;padding:1rem;border-radius:1rem;background:#f5effc}.close-room{background:var(--blue)}@keyframes bg{from{background-position:0 30%}to{background-position:100% 70%}}@media(max-width:700px){header{width:calc(100% - 1.5rem);margin:.75rem auto}.actions{flex-wrap:wrap;justify-content:flex-end}main{width:calc(100% - 1.5rem);margin:2rem auto}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}.match-result.visible{align-items:start;flex-direction:column}}
-</style></head><body><header><a class="brand" href="student-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a><div class="actions"><select id="viewSwitcher"></select><button id="logout">log out</button></div></header><main><p class="eyebrow">Student dashboard</p><h1>What are you<br><em>working on?</em></h1><p class="lead">Tell us what you need and we’ll connect you with an online tutor who knows the same material.</p><section class="help-panel"><h2>Find an online tutor</h2><div class="form-grid"><div class="field"><label for="subject">Class or topic</label><select id="subject"><option>Calculus 1</option><option>Calculus 3</option><option>Physics</option><option>English</option><option>Computer Science</option><option>Biology</option><option>General tutoring</option></select></div><div class="field"><label for="helpType">I need help with</label><select id="helpType"><option>Homework problem</option><option>Exam prep</option><option>Study session</option><option>Concept explanation</option><option>Essay or project</option></select></div><div class="field"><label for="duration">How much time?</label><select id="duration"><option value="30">30 minutes</option><option value="60">1 hour</option><option value="90">90 minutes</option><option value="120">2 hours</option></select></div><div class="field full"><label for="note">Anything the tutor should know?</label><textarea id="note" maxlength="500" placeholder="Share the topic or question..."></textarea></div></div><button id="findTutor" type="button" style="margin-top:1rem;background:var(--yellow)">send request</button><p class="status" id="status"></p></section><section class="match-result" id="matchResult"><div><h2 id="matchTitle">Tutorova is online</h2><p id="matchDetails">Your request is on its way.</p></div><span class="badge">OFFER SENT</span></section></main><div class="room" id="room"><div class="room-card"><div class="room-top"><div><p class="eyebrow">Live study room</p><h2 id="roomTitle">You’re connected.</h2></div><span class="live">● LIVE</span></div><div class="room-chat">Your tutor accepted the offer. Use this room to start the session and share your question.</div><button class="close-room" id="closeRoom">close room</button></div></div><script>
-const routes={student:'student-dashboard.html',tutor:'tutor-dashboard.html',admin:'admin-dashboard.html'};let csrfToken='';let requestId=null;const status=document.getElementById('status');const selector=document.getElementById('viewSwitcher');async function api(action,payload={}){const response=await fetch(`tutoring-api.php?action=${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},body:JSON.stringify({action,...payload})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed');return data}async function init(){const session=await fetch('tutoring-api.php?action=session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'session'})}).then(response=>response.json());if(!session.user){location.replace('login.html');return}csrfToken=session.csrfToken;const roles=session.user.role==='admin'?['student','tutor','admin']:session.user.role==='both'?['student','tutor']:['student'];selector.innerHTML=roles.map(role=>`<option value="${role}">${role==='student'?'Student dashboard':role==='tutor'?'Tutor dashboard':'Admin dashboard'}</option>`).join('');selector.value='student'}async function checkMatch(){if(!requestId)return;try{const result=await api('match-request-status',{requestId});if(result.request.status==='accepted'){document.getElementById('roomTitle').textContent=`You’re connected with ${result.request.tutor_name}.`;document.getElementById('room').classList.add('visible');}}catch(error){}}selector.addEventListener('change',()=>location.href=routes[selector.value]);document.getElementById('findTutor').addEventListener('click',async()=>{const button=document.getElementById('findTutor');button.disabled=true;button.textContent='finding your match...';try{const result=await api('find-online-tutor',{subject:subject.value,helpType:helpType.value,duration:Number(duration.value),note:note.value.trim()});requestId=result.request.id;document.getElementById('matchTitle').textContent=`${result.tutor.name} is online and ready`;document.getElementById('matchDetails').textContent=`${result.request.subject} · ${result.request.helpType} · ${result.request.duration} minutes`;document.getElementById('matchResult').classList.add('visible');status.textContent='Your offer was sent. We’ll open the study room when your tutor accepts.';status.className='status success';setInterval(checkMatch,4000)}catch(error){status.textContent=error.message;status.className='status error'}finally{button.disabled=false;button.textContent='send request'}});document.getElementById('closeRoom').addEventListener('click',()=>document.getElementById('room').classList.remove('visible'));document.getElementById('logout').addEventListener('click',()=>location.href='login.html');init();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Student Dashboard | TutorRush</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="student-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a>
+    <div class="actions"><select id="viewSwitcher"></select><button id="logout" type="button">log out</button></div>
+  </header>
+  <main class="page">
+    <p class="eyebrow">Student dashboard</p>
+    <h1>What are you<br><em>working on?</em></h1>
+    <p class="lead">Tell us what you need and we’ll connect you with an online tutor who knows the same material.</p>
+
+    <section class="banner" id="activeBanner" hidden>
+      <div><strong>You have an active study session.</strong><p>Head back to your room to keep going.</p></div>
+      <a class="button yellow" id="activeLink" href="#">open room</a>
+    </section>
+
+    <section class="panel">
+      <h2>Find an online tutor</h2>
+      <div class="form-grid">
+        <div class="field"><label for="subject">Class or topic</label>
+          <select id="subject"><option>Calculus 1</option><option>Calculus 3</option><option>Physics</option><option>English</option><option>Computer Science</option><option>Biology</option><option>General tutoring</option></select></div>
+        <div class="field"><label for="helpType">I need help with</label>
+          <select id="helpType"><option>Homework problem</option><option>Exam prep</option><option>Study session</option><option>Concept explanation</option><option>Essay or project</option></select></div>
+        <div class="field"><label for="duration">How much time?</label>
+          <select id="duration"><option value="30">30 minutes</option><option value="60">1 hour</option><option value="90">90 minutes</option><option value="120">2 hours</option></select></div>
+        <div class="field full"><label for="note">Anything the tutor should know?</label>
+          <textarea id="note" maxlength="500" placeholder="Share the topic or question..."></textarea></div>
+      </div>
+      <button id="findTutor" class="yellow" type="button" style="margin-top:1rem">send request</button>
+      <p class="status" id="status"></p>
+    </section>
+
+    <section class="panel" id="matchResult" hidden>
+      <div class="row">
+        <div><h2 id="matchTitle"></h2><p id="matchDetails"></p></div>
+        <span class="badge" id="matchBadge"></span>
+      </div>
+      <div style="margin-top:1rem">
+        <button id="cancelRequest" class="plain" type="button">cancel request</button>
+        <a class="button green" id="enterRoom" href="#" hidden>enter study room</a>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Your study rooms</h2>
+      <p>Rooms stay here after a session ends so you can look back at the chat and files.</p>
+      <div class="room-list" id="rooms"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const status = document.getElementById('status');
+    const findButton = document.getElementById('findTutor');
+    const matchResult = document.getElementById('matchResult');
+    let requestId = null;
+    let pollTimer = null;
+
+    function stopPolling() {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    function showMatch(title, details, badge, { pending = false, roomId = null } = {}) {
+      matchResult.hidden = false;
+      document.getElementById('matchTitle').textContent = title;
+      document.getElementById('matchDetails').textContent = details;
+      document.getElementById('matchBadge').textContent = badge;
+      document.getElementById('cancelRequest').hidden = !pending;
+      const enter = document.getElementById('enterRoom');
+      enter.hidden = roomId === null;
+      if (roomId !== null) enter.href = `room.html?id=${roomId}`;
+    }
+
+    async function refreshRooms() {
+      const { rooms } = await api('my-rooms');
+      renderRoomList(document.getElementById('rooms'), rooms);
+      const active = rooms.find((room) => room.status === 'active' && room.role === 'student');
+      document.getElementById('activeBanner').hidden = !active;
+      if (active) document.getElementById('activeLink').href = `room.html?id=${active.id}`;
+      findButton.disabled = Boolean(active) || Boolean(requestId);
+    }
+
+    async function checkMatch() {
+      if (!requestId) return;
+      try {
+        const { request } = await api('match-request-status', { requestId });
+        if (request.status === 'accepted' && request.room_id) {
+          stopPolling();
+          location.href = `room.html?id=${request.room_id}`;
+        } else if (['declined', 'expired', 'cancelled'].includes(request.status)) {
+          stopPolling();
+          requestId = null;
+          const messages = {
+            declined: `${request.tutor_name} could not take this one. Try again to reach another tutor.`,
+            expired: `${request.tutor_name} did not respond in time. Try again to reach another tutor.`,
+            cancelled: 'Request cancelled.',
+          };
+          showMatch('No match yet', messages[request.status], request.status.toUpperCase());
+          await refreshRooms();
+        }
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+    }
+
+    findButton.addEventListener('click', async () => {
+      findButton.disabled = true;
+      findButton.textContent = 'finding your match...';
+      setStatus(status, '');
+      try {
+        const result = await api('find-online-tutor', {
+          subject: subject.value,
+          helpType: helpType.value,
+          duration: Number(duration.value),
+          note: note.value.trim(),
+        });
+        requestId = result.request.id;
+        showMatch(`${result.tutor.name} is online`, `Waiting for ${result.tutor.name} to accept your ${result.request.subject} request. This page updates automatically.`, 'OFFER SENT', { pending: true });
+        stopPolling();
+        pollTimer = setInterval(checkMatch, 4000);
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+        findButton.disabled = false;
+      } finally {
+        findButton.textContent = 'send request';
+      }
+    });
+
+    document.getElementById('cancelRequest').addEventListener('click', async () => {
+      if (!requestId) return;
+      try {
+        await api('cancel-match-request', { requestId });
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+      await checkMatch();
+    });
+
+    (async () => {
+      const user = await loadSession();
+      if (!user) return;
+      setupHeader(user, 'student');
+      await refreshRooms();
+    })();
+  </script>
+</body>
+</html>

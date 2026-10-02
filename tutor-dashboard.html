@@ -1,4 +1,163 @@
-<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tutor Dashboard | TutorRush</title><style>:root{--i:#2d2443;--p:#ffb8d9;--y:#fff08e;--g:#d6fa99;--b:#bbd4ff;--l:rgba(45,36,67,.2)}*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--i);font:16px Arial;background:linear-gradient(120deg,#e5f7ca,#f6ebff 48%,#ffeaf4);background-size:160% 160%;animation:bg 16s ease-in-out infinite alternate}header{display:flex;justify-content:space-between;align-items:center;gap:1rem;width:min(1120px,calc(100% - 2.5rem));margin:1rem auto;padding:.6rem .8rem;border:1px solid #fff;border-radius:999px;background:#ffffffaa;backdrop-filter:blur(12px)}.brand{display:flex;align-items:center;gap:.6rem;color:inherit;text-decoration:none;font-weight:700}.logo{display:grid;width:2.65rem;height:2.65rem;place-items:center;border-radius:.75rem;color:#fff;background:linear-gradient(135deg,var(--p),#dccbff,var(--b));font-weight:800}.actions{display:flex;gap:.6rem}select,button{padding:.65rem .8rem;border:1px solid var(--i);border-radius:999px;background:#fff;font-weight:700;color:var(--i)}select{appearance:none;min-width:11rem;padding-right:2.4rem;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1.5 7 7.5 13 1.5' fill='none' stroke='%232d2443' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .25rem center;background-size:.8rem auto}button{cursor:pointer;background:var(--g);box-shadow:.1rem .1rem 0 var(--i)}button:hover{transform:translateY(-2px)}main{width:min(100% - 2.5rem,900px);margin:3rem auto}h1{font-size:clamp(3rem,7vw,6rem);line-height:.9;margin:.5rem 0}h1 em{font-family:Georgia,serif;font-weight:400}.eyebrow{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}.lead{font-size:1.1rem;line-height:1.5}.panel,.offer{padding:1.4rem;margin-top:1rem;border:1px solid var(--l);border-radius:1.2rem;background:#ffffffb8;box-shadow:0 .8rem 1.5rem #69509912}.panel:first-of-type{margin-top:2rem}.status-dot{display:inline-block;width:.7rem;height:.7rem;border-radius:50%;background:#9ca3af}.status-dot.online{background:#35d07f}.toggle{position:relative;width:3.2rem;height:1.8rem;border:0;border-radius:999px;background:#cbd5e1;box-shadow:none}.toggle input{position:absolute;opacity:0}.toggle span{position:absolute;width:1.3rem;height:1.3rem;top:.25rem;left:.25rem;border-radius:50%;background:#fff;transition:.2s}.toggle:has(input:checked){background:#35d07f}.toggle:has(input:checked) span{transform:translateX(1.4rem)}.availability{display:flex;justify-content:space-between;align-items:center;gap:1rem}.subjects{display:flex;gap:.8rem;align-items:end;justify-content:space-between}.subjects select{display:block;min-width:18rem;margin-top:.5rem;border-radius:.7rem}.offers{display:grid;gap:1rem}.offer{display:flex;flex-direction:column;gap:.6rem;border-left:.5rem solid var(--y)}.meta{color:#6d617f;font-size:.9rem}.accept{background:var(--y);width:max-content}.status{min-height:1.5rem;color:#6d617f}.error{color:#a63e63}.success{color:#397650}.room{display:none;position:fixed;inset:0;z-index:4;place-items:center;padding:1rem;background:#2d244399}.room.open{display:grid}.room-card{width:min(100%,560px);padding:2rem;border-radius:1.4rem;background:#fff}.room-card h2{font-size:2rem}.close{background:var(--b)}@keyframes bg{from{background-position:0 30%}to{background-position:100% 70%}}@media(max-width:700px){header{width:calc(100% - 1.5rem);margin:.75rem auto}.actions{flex-wrap:wrap;justify-content:flex-end}main{width:calc(100% - 2rem);margin:2rem auto}.availability,.subjects{align-items:start;flex-direction:column}.subjects select{min-width:0;width:100%}}
-</style></head><body><header><a class="brand" href="tutor-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a><div class="actions"><select id="views"></select><button id="logout">log out</button></div></header><main><p class="eyebrow">Tutor dashboard</p><h1>Help it<br><em>click.</em></h1><p class="lead">Go online, save your specialties, and receive students who need exactly what you teach.</p><section class="panel availability"><div><strong><span class="status-dot" id="dot"></span> <span id="state">Offline</span></strong><p id="stateText">Students cannot find you yet.</p></div><label class="toggle"><input id="online" type="checkbox"><span></span></label></section><section class="panel subjects"><div><strong>Your subjects</strong><p>Choose the classes you can teach.</p><select id="subjectList" multiple size="4"><option>Calculus 1</option><option>Calculus 3</option><option>Physics</option><option>English</option><option>Computer Science</option><option>Biology</option><option>General tutoring</option></select></div><button id="saveSubjects">save subjects</button></section><h2>Incoming student offers</h2><section class="offers" id="offers"></section><p class="status" id="status"></p></main><div class="room" id="room"><div class="room-card"><span class="success">● LIVE STUDY ROOM</span><h2 id="roomTitle">You’re connected.</h2><p>Your student offer was accepted. Start the session together here.</p><button class="close" id="close">close room</button></div></div><script>
-const routes={student:'student-dashboard.html',tutor:'tutor-dashboard.html',admin:'admin-dashboard.html'};let csrf='';let state='offline';const status=document.getElementById('status');const views=document.getElementById('views');async function api(action,payload={}){const response=await fetch(`tutoring-api.php?action=${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({action,...payload})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed');return data}function render(){const online=state==='online';document.getElementById('online').checked=online;document.getElementById('state').textContent=state==='busy'?'Busy':online?'Online & accepting':'Offline';document.getElementById('stateText').textContent=state==='busy'?'You are matched with a student. Switch off after the session.':online?'Students can find you now.':'Students cannot find you yet.';document.getElementById('dot').classList.toggle('online',online)}async function loadOffers(){try{const data=await api('tutor-requests');const box=document.getElementById('offers');box.replaceChildren();if(!data.requests.length){box.innerHTML='<div class="offer">No pending offers yet. Go online to receive student requests.</div>';return}data.requests.forEach(request=>{const offer=document.createElement('article');offer.className='offer';offer.innerHTML=`<span class="meta">${request.student_name} · ${request.subject} · ${request.duration} minutes · received ${new Date(request.created_at.replace(' ','T')+'Z').toLocaleString()}</span><h3>${request.help_type}</h3><span>${request.note||'No extra notes.'}</span><button class="accept">accept offer</button>`;offer.querySelector('button').onclick=async()=>{const result=await api('accept-match-request',{requestId:request.id});state='busy';render();document.getElementById('roomTitle').textContent=`You’re connected with ${result.request.student_name}.`;document.getElementById('room').classList.add('open');offer.remove()};box.appendChild(offer)})}catch(error){status.textContent=error.message;status.className='status error'}}async function init(){const session=await fetch('tutoring-api.php?action=session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'session'})}).then(response=>response.json());if(!session.user){location.replace('login.html');return}csrf=session.csrfToken;state=session.user.availabilityStatus||'offline';const roles=session.user.role==='admin'?['student','tutor','admin']:session.user.role==='both'?['student','tutor']:['tutor'];views.innerHTML=roles.map(role=>`<option value="${role}">${role==='student'?'Student dashboard':role==='tutor'?'Tutor dashboard':'Admin dashboard'}</option>`).join('');views.value='tutor';render();loadOffers()}document.getElementById('online').onchange=async event=>{const result=await api('set-tutor-status',{online:event.target.checked});state=result.status;render()};document.getElementById('saveSubjects').onclick=async()=>{const subjects=[...document.getElementById('subjectList').selectedOptions].map(option=>option.value);await api('set-tutor-subjects',{subjects});status.textContent='Subjects saved.';status.className='status success'};views.onchange=()=>location.href=routes[views.value];document.getElementById('logout').onclick=()=>location.href='login.html';document.getElementById('close').onclick=()=>document.getElementById('room').classList.remove('open');init();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tutor Dashboard | TutorRush</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="tutor-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a>
+    <div class="actions"><select id="viewSwitcher"></select><button id="logout" type="button">log out</button></div>
+  </header>
+  <main class="page">
+    <p class="eyebrow">Tutor dashboard</p>
+    <h1>Help it<br><em>click.</em></h1>
+    <p class="lead">Go online, save your specialties, and receive students who need exactly what you teach.</p>
+
+    <section class="banner" id="activeBanner" hidden>
+      <div><strong>You’re in a study session.</strong><p>You’ll be marked busy until the session ends.</p></div>
+      <a class="button yellow" id="activeLink" href="#">open room</a>
+    </section>
+
+    <section class="panel row">
+      <div>
+        <strong><span class="status-dot" id="dot"></span> <span id="state">Offline</span></strong>
+        <p id="stateText">Students cannot find you yet.</p>
+      </div>
+      <label class="toggle" title="Go online"><input id="online" type="checkbox"><span></span></label>
+    </section>
+
+    <section class="panel row">
+      <div>
+        <strong>Your subjects</strong>
+        <p>Choose the classes you can teach (hold Cmd/Ctrl to select several).</p>
+        <select id="subjectList" multiple size="7" style="margin-top:.6rem">
+          <option>Calculus 1</option><option>Calculus 3</option><option>Physics</option><option>English</option>
+          <option>Computer Science</option><option>Biology</option><option>General tutoring</option>
+        </select>
+      </div>
+      <button id="saveSubjects" class="green" type="button">save subjects</button>
+    </section>
+
+    <h2>Incoming student offers</h2>
+    <p class="status" id="status"></p>
+    <section id="offers"></section>
+
+    <section class="panel">
+      <h2>Your study rooms</h2>
+      <p>Rooms stay here after a session ends so you can look back at the chat and files.</p>
+      <div class="room-list" id="rooms"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const status = document.getElementById('status');
+    const toggle = document.getElementById('online');
+    let availability = 'offline';
+
+    function renderAvailability() {
+      const online = availability === 'online';
+      toggle.checked = online;
+      toggle.disabled = availability === 'busy';
+      document.getElementById('state').textContent = availability === 'busy' ? 'Busy' : online ? 'Online & accepting' : 'Offline';
+      document.getElementById('stateText').textContent = availability === 'busy'
+        ? 'You’re matched with a student. End the session to go online again.'
+        : online ? 'Students can find you now.' : 'Students cannot find you yet.';
+      const dot = document.getElementById('dot');
+      dot.classList.toggle('online', online);
+      dot.classList.toggle('busy', availability === 'busy');
+    }
+
+    async function loadOffers() {
+      const box = document.getElementById('offers');
+      try {
+        const { requests } = await api('tutor-requests');
+        box.replaceChildren();
+        if (!requests.length) {
+          box.appendChild(element('div', 'offer', 'No pending offers yet. Go online to receive student requests.'));
+          return;
+        }
+        requests.forEach((request) => {
+          const offer = element('article', 'offer');
+          offer.appendChild(element('span', 'meta', `${request.student_name} · ${request.subject} · ${request.duration} minutes · received ${formatDateTime(request.created_at)}`));
+          offer.appendChild(element('h3', '', request.help_type));
+          offer.appendChild(element('span', '', request.note || 'No extra notes.'));
+          const buttons = element('div', 'offer-actions');
+          const accept = element('button', 'green', 'accept offer');
+          const decline = element('button', 'plain', 'decline');
+          accept.type = decline.type = 'button';
+          accept.onclick = async () => {
+            accept.disabled = decline.disabled = true;
+            try {
+              const result = await api('accept-match-request', { requestId: request.id });
+              location.href = `room.html?id=${result.roomId}`;
+            } catch (error) {
+              setStatus(status, error.message, 'error');
+              loadOffers();
+            }
+          };
+          decline.onclick = async () => {
+            try { await api('decline-match-request', { requestId: request.id }); } catch (error) { setStatus(status, error.message, 'error'); }
+            loadOffers();
+          };
+          buttons.append(accept, decline);
+          offer.appendChild(buttons);
+          box.appendChild(offer);
+        });
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+    }
+
+    async function refreshRooms() {
+      const { rooms } = await api('my-rooms');
+      renderRoomList(document.getElementById('rooms'), rooms);
+      const active = rooms.find((room) => room.status === 'active' && room.role === 'tutor');
+      document.getElementById('activeBanner').hidden = !active;
+      if (active) {
+        document.getElementById('activeLink').href = `room.html?id=${active.id}`;
+        availability = 'busy';
+      } else if (availability === 'busy') {
+        availability = 'offline';
+      }
+      renderAvailability();
+    }
+
+    toggle.addEventListener('change', async () => {
+      setStatus(status, '');
+      try {
+        const result = await api('set-tutor-status', { online: toggle.checked });
+        availability = result.status;
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+      renderAvailability();
+    });
+
+    document.getElementById('saveSubjects').addEventListener('click', async () => {
+      const subjects = [...document.getElementById('subjectList').selectedOptions].map((option) => option.value);
+      try {
+        await api('set-tutor-subjects', { subjects });
+        setStatus(status, 'Subjects saved.', 'success');
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+    });
+
+    (async () => {
+      const user = await loadSession();
+      if (!user) return;
+      setupHeader(user, 'tutor');
+      availability = user.availabilityStatus || 'offline';
+      [...document.getElementById('subjectList').options].forEach((option) => { option.selected = (user.subjects || []).includes(option.value); });
+      renderAvailability();
+      await refreshRooms();
+      await loadOffers();
+      setInterval(() => { if (availability === 'online') loadOffers(); }, 5000);
+    })();
+  </script>
+</body>
+</html>

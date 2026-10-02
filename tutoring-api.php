@@ -163,7 +163,96 @@ function userPayload(array $user): array {
         'email' => $user['email'],
         'role' => $user['role'],
         'availabilityStatus' => $user['availability_status'] ?? ((int) ($user['is_online'] ?? 0) ? 'online' : 'offline'),
+        'subjects' => json_decode((string) ($user['tutor_subjects'] ?? ''), true) ?: [],
     ];
+}
+
+const OFFER_TTL_MINUTES = 15;
+const MAX_ROOM_FILE_BYTES = 3 * 1024 * 1024;
+const MAX_ROOM_FILES = 25;
+const ROOM_FILE_TYPES = [
+    'pdf' => 'application/pdf', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+    'gif' => 'image/gif', 'webp' => 'image/webp', 'txt' => 'text/plain', 'md' => 'text/plain', 'csv' => 'text/csv',
+    'doc' => 'application/msword', 'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'ppt' => 'application/vnd.ms-powerpoint', 'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'xls' => 'application/vnd.ms-excel', 'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
+
+function isoTime(?string $value): ?string {
+    return $value === null ? null : str_replace(' ', 'T', $value) . 'Z';
+}
+
+function activeRoomId(PDO $database, int $userId): ?int {
+    $statement = $database->prepare("SELECT id FROM study_rooms WHERE status = 'active' AND (student_id = ? OR tutor_id = ?) LIMIT 1");
+    $statement->execute([$userId, $userId]);
+    $id = $statement->fetchColumn();
+    return $id === false ? null : (int) $id;
+}
+
+function loadRoomForUser(PDO $database, int $roomId, int $userId): array {
+    $statement = $database->prepare('SELECT r.id, r.student_id, r.tutor_id, r.video_token, r.status, r.ended_by, r.created_at, r.ended_at, m.subject, m.help_type, m.duration, m.note, s.name AS student_name, t.name AS tutor_name FROM study_rooms r JOIN match_requests m ON m.id = r.match_request_id JOIN users s ON s.id = r.student_id JOIN users t ON t.id = r.tutor_id WHERE r.id = ? AND (r.student_id = ? OR r.tutor_id = ?)');
+    $statement->execute([$roomId, $userId, $userId]);
+    $room = $statement->fetch(PDO::FETCH_ASSOC);
+    if (!$room) respond(404, ['error' => 'Study room not found.']);
+    return $room;
+}
+
+function requireActiveRoom(array $room): void {
+    if ($room['status'] !== 'active') respond(409, ['error' => 'This session has ended. The room is read-only.']);
+}
+
+function roomPayload(array $room, int $viewerId): array {
+    $viewerIsTutor = (int) $room['tutor_id'] === $viewerId;
+    $active = $room['status'] === 'active';
+    return [
+        'id' => (int) $room['id'],
+        'status' => $room['status'],
+        'role' => $viewerIsTutor ? 'tutor' : 'student',
+        'subject' => $room['subject'],
+        'helpType' => $room['help_type'],
+        'duration' => (int) $room['duration'],
+        'note' => $room['note'],
+        'studentName' => $room['student_name'],
+        'tutorName' => $room['tutor_name'],
+        'partnerName' => $viewerIsTutor ? $room['student_name'] : $room['tutor_name'],
+        'createdAt' => isoTime($room['created_at']),
+        'endedAt' => isoTime($room['ended_at']),
+        'endedBy' => $room['ended_by'] === null ? null : ((int) $room['ended_by'] === $viewerId ? 'you' : 'partner'),
+        'videoToken' => $active ? $room['video_token'] : null,
+    ];
+}
+
+function roomMessages(PDO $database, int $roomId, int $viewerId, int $afterId): array {
+    $statement = $database->prepare('SELECT m.id, m.sender_id, m.kind, m.body, m.created_at, u.name AS sender_name FROM room_messages m JOIN users u ON u.id = m.sender_id WHERE m.room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 200');
+    $statement->execute([$roomId, $afterId]);
+    return array_map(static fn(array $row): array => [
+        'id' => (int) $row['id'],
+        'mine' => (int) $row['sender_id'] === $viewerId,
+        'kind' => $row['kind'],
+        'body' => $row['body'],
+        'senderName' => $row['sender_name'],
+        'createdAt' => isoTime($row['created_at']),
+    ], $statement->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function roomFiles(PDO $database, int $roomId): array {
+    $statement = $database->prepare('SELECT f.id, f.original_name, f.size, f.created_at, u.name AS uploader_name FROM room_files f JOIN users u ON u.id = f.uploader_id WHERE f.room_id = ? ORDER BY f.id DESC');
+    $statement->execute([$roomId]);
+    return array_map(static fn(array $row): array => [
+        'id' => (int) $row['id'],
+        'name' => $row['original_name'],
+        'size' => (int) $row['size'],
+        'uploaderName' => $row['uploader_name'],
+        'createdAt' => isoTime($row['created_at']),
+    ], $statement->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function uploadDirectory(): string {
+    $directory = __DIR__ . '/storage/uploads';
+    if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
+        throw new RuntimeException('Could not create the upload directory.');
+    }
+    return $directory;
 }
 
 try {
@@ -334,17 +423,54 @@ try {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )');
+    $database->exec('CREATE TABLE IF NOT EXISTS study_rooms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_request_id INTEGER NOT NULL UNIQUE,
+        student_id INTEGER NOT NULL,
+        tutor_id INTEGER NOT NULL,
+        video_token TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT \'active\',
+        ended_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ended_at TEXT,
+        FOREIGN KEY(match_request_id) REFERENCES match_requests(id),
+        FOREIGN KEY(student_id) REFERENCES users(id),
+        FOREIGN KEY(tutor_id) REFERENCES users(id)
+    )');
+    $database->exec('CREATE TABLE IF NOT EXISTS room_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL,
+        sender_id INTEGER NOT NULL,
+        kind TEXT NOT NULL DEFAULT \'user\',
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(room_id) REFERENCES study_rooms(id),
+        FOREIGN KEY(sender_id) REFERENCES users(id)
+    )');
+    $database->exec('CREATE TABLE IF NOT EXISTS room_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL,
+        uploader_id INTEGER NOT NULL,
+        original_name TEXT NOT NULL,
+        stored_name TEXT NOT NULL UNIQUE,
+        size INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(room_id) REFERENCES study_rooms(id),
+        FOREIGN KEY(uploader_id) REFERENCES users(id)
+    )');
+    $database->exec('CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room_id, id)');
+
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'match-request-status', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'end-room', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
     if ($action === 'session') {
         $user = null;
         if (isset($_SESSION['tutorrush_user_id'])) {
-            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status FROM users WHERE id = ?');
+            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status, tutor_subjects FROM users WHERE id = ?');
             $statement->execute([(int) $_SESSION['tutorrush_user_id']]);
             $user = $statement->fetch(PDO::FETCH_ASSOC) ?: null;
         }
@@ -490,6 +616,9 @@ try {
         if (!in_array($role, ['tutor', 'both', 'admin'], true) || $status === null) {
             respond(403, ['error' => 'Tutor access is required.']);
         }
+        if ($status && activeRoomId($database, $userId) !== null) {
+            respond(409, ['error' => 'End your active study session before going online.']);
+        }
         $availabilityStatus = $status ? 'online' : 'offline';
         $statement = $database->prepare('UPDATE users SET is_online = ?, availability_status = ? WHERE id = ?');
         $statement->execute([$status ? 1 : 0, $availabilityStatus, $userId]);
@@ -515,6 +644,9 @@ try {
         if (!$duration || !in_array($duration, [30, 60, 90, 120], true) || mb_strlen($note) > 500) {
             respond(422, ['error' => 'Choose a valid session duration and keep your note under 500 characters.']);
         }
+        if (activeRoomId($database, $userId) !== null) {
+            respond(409, ['error' => 'You already have an active study session. End it before requesting a new tutor.']);
+        }
         $statement = $database->prepare("SELECT id, name, role, tutor_subjects FROM users WHERE id != ? AND availability_status = 'online' AND role IN ('tutor', 'both') ORDER BY RANDOM()");
         $statement->execute([$userId]);
         $tutor = null;
@@ -530,33 +662,161 @@ try {
 
     if ($action === 'tutor-requests') {
         $userId = requireUserId();
-        $statement = $database->prepare("SELECT m.id, m.subject, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' ORDER BY m.id DESC");
-        $statement->execute([$userId]);
-        respond(200, ['requests' => $statement->fetchAll(PDO::FETCH_ASSOC)]);
+        $statement = $database->prepare("SELECT m.id, m.subject, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' AND m.created_at >= datetime('now', ?) ORDER BY m.id DESC");
+        $statement->execute([$userId, '-' . OFFER_TTL_MINUTES . ' minutes']);
+        $requests = array_map(static fn(array $row): array => [...$row, 'created_at' => isoTime($row['created_at'])], $statement->fetchAll(PDO::FETCH_ASSOC));
+        respond(200, ['requests' => $requests]);
     }
 
     if ($action === 'accept-match-request') {
         $tutorId = requireUserId();
         $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
         if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
-        $statement = $database->prepare("UPDATE match_requests SET status = 'accepted' WHERE id = ? AND tutor_id = ? AND status = 'pending'");
-        $statement->execute([$requestId, $tutorId]);
-        if ($statement->rowCount() === 0) respond(404, ['error' => 'This offer is no longer available.']);
-        $database->prepare("UPDATE users SET is_online = 0, availability_status = 'busy' WHERE id = ?")->execute([$tutorId]);
-        $details = $database->prepare('SELECT m.id, m.subject, m.help_type, m.duration, m.note, s.name AS student_name, t.name AS tutor_name FROM match_requests m JOIN users s ON s.id = m.student_id JOIN users t ON t.id = m.tutor_id WHERE m.id = ?');
-        $details->execute([$requestId]);
-        respond(200, ['request' => $details->fetch(PDO::FETCH_ASSOC)]);
+        if (activeRoomId($database, $tutorId) !== null) {
+            respond(409, ['error' => 'End your current study session before accepting another.']);
+        }
+        $database->beginTransaction();
+        try {
+            $statement = $database->prepare("UPDATE match_requests SET status = 'accepted' WHERE id = ? AND tutor_id = ? AND status = 'pending' AND created_at >= datetime('now', ?)");
+            $statement->execute([$requestId, $tutorId, '-' . OFFER_TTL_MINUTES . ' minutes']);
+            if ($statement->rowCount() === 0) {
+                $database->rollBack();
+                respond(404, ['error' => 'This offer is no longer available.']);
+            }
+            $studentStatement = $database->prepare('SELECT student_id FROM match_requests WHERE id = ?');
+            $studentStatement->execute([$requestId]);
+            $studentId = (int) $studentStatement->fetchColumn();
+            $database->prepare('INSERT INTO study_rooms (match_request_id, student_id, tutor_id, video_token) VALUES (?, ?, ?, ?)')->execute([$requestId, $studentId, $tutorId, bin2hex(random_bytes(12))]);
+            $roomId = (int) $database->lastInsertId();
+            $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body) VALUES (?, ?, ?, ?)')->execute([$roomId, $tutorId, 'system', 'Session started. Say hello and share what you want to work on.']);
+            $database->prepare("UPDATE users SET is_online = 0, availability_status = 'busy' WHERE id = ?")->execute([$tutorId]);
+            $database->commit();
+        } catch (Throwable $exception) {
+            if ($database->inTransaction()) $database->rollBack();
+            throw $exception;
+        }
+        respond(200, ['roomId' => $roomId]);
     }
 
     if ($action === 'match-request-status') {
         $studentId = requireUserId();
         $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
         if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
-        $statement = $database->prepare('SELECT m.id, m.status, m.subject, m.help_type, m.duration, m.note, t.name AS tutor_name FROM match_requests m JOIN users t ON t.id = m.tutor_id WHERE m.id = ? AND m.student_id = ?');
+        $statement = $database->prepare('SELECT m.id, m.status, m.subject, m.help_type, m.duration, m.note, m.created_at, t.name AS tutor_name, r.id AS room_id FROM match_requests m JOIN users t ON t.id = m.tutor_id LEFT JOIN study_rooms r ON r.match_request_id = m.id WHERE m.id = ? AND m.student_id = ?');
         $statement->execute([$requestId, $studentId]);
         $match = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$match) respond(404, ['error' => 'Match request not found.']);
+        if ($match['status'] === 'pending' && strtotime($match['created_at'] . ' UTC') < time() - OFFER_TTL_MINUTES * 60) {
+            $match['status'] = 'expired';
+        }
+        unset($match['created_at']);
+        $match['room_id'] = $match['room_id'] === null ? null : (int) $match['room_id'];
         respond(200, ['request' => $match]);
+    }
+
+    if ($action === 'decline-match-request' || $action === 'cancel-match-request') {
+        $userId = requireUserId();
+        $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
+        $isDecline = $action === 'decline-match-request';
+        $statement = $database->prepare('UPDATE match_requests SET status = ? WHERE id = ? AND ' . ($isDecline ? 'tutor_id' : 'student_id') . " = ? AND status = 'pending'");
+        $statement->execute([$isDecline ? 'declined' : 'cancelled', $requestId, $userId]);
+        if ($statement->rowCount() === 0) respond(404, ['error' => 'This request is no longer pending.']);
+        respond(200, ['status' => $isDecline ? 'declined' : 'cancelled']);
+    }
+
+    if ($action === 'my-rooms') {
+        $userId = requireUserId();
+        $statement = $database->prepare('SELECT r.id, r.status, r.created_at, r.ended_at, r.student_id, r.tutor_id, m.subject, m.help_type, s.name AS student_name, t.name AS tutor_name FROM study_rooms r JOIN match_requests m ON m.id = r.match_request_id JOIN users s ON s.id = r.student_id JOIN users t ON t.id = r.tutor_id WHERE r.student_id = ? OR r.tutor_id = ? ORDER BY r.id DESC LIMIT 25');
+        $statement->execute([$userId, $userId]);
+        $rooms = array_map(static function (array $room) use ($userId): array {
+            $asTutor = (int) $room['tutor_id'] === $userId;
+            return [
+                'id' => (int) $room['id'],
+                'status' => $room['status'],
+                'role' => $asTutor ? 'tutor' : 'student',
+                'subject' => $room['subject'],
+                'helpType' => $room['help_type'],
+                'partnerName' => $asTutor ? $room['student_name'] : $room['tutor_name'],
+                'createdAt' => isoTime($room['created_at']),
+                'endedAt' => isoTime($room['ended_at']),
+            ];
+        }, $statement->fetchAll(PDO::FETCH_ASSOC));
+        respond(200, ['rooms' => $rooms]);
+    }
+
+    if (in_array($action, ['room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'end-room'], true)) {
+        $userId = requireUserId();
+        $roomId = filter_var($request['roomId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$roomId) respond(422, ['error' => 'A valid room is required.']);
+        $room = loadRoomForUser($database, $roomId, $userId);
+
+        if ($action === 'room-details') {
+            $afterId = max(0, (int) ($request['afterMessageId'] ?? 0));
+            respond(200, ['room' => roomPayload($room, $userId), 'messages' => roomMessages($database, $roomId, $userId, $afterId), 'files' => roomFiles($database, $roomId)]);
+        }
+
+        if ($action === 'room-send-message') {
+            requireActiveRoom($room);
+            $body = validateText($request['body'] ?? '', 2000, 'Message');
+            $database->prepare('INSERT INTO room_messages (room_id, sender_id, body) VALUES (?, ?, ?)')->execute([$roomId, $userId, $body]);
+            respond(201, ['id' => (int) $database->lastInsertId()]);
+        }
+
+        if ($action === 'room-upload-file') {
+            requireActiveRoom($room);
+            $name = trim(basename(str_replace('\\', '/', (string) ($request['name'] ?? ''))));
+            $name = mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', '', $name), 0, 120);
+            $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            if ($name === '' || !array_key_exists($extension, ROOM_FILE_TYPES)) {
+                respond(422, ['error' => 'That file type is not allowed. Use PDF, images, text, Office documents, or CSV.']);
+            }
+            $contents = base64_decode((string) ($request['data'] ?? ''), true);
+            if ($contents === false || $contents === '') respond(422, ['error' => 'The file could not be read.']);
+            if (strlen($contents) > MAX_ROOM_FILE_BYTES) respond(413, ['error' => 'Files can be up to 3 MB.']);
+            $count = $database->prepare('SELECT COUNT(*) FROM room_files WHERE room_id = ?');
+            $count->execute([$roomId]);
+            if ((int) $count->fetchColumn() >= MAX_ROOM_FILES) respond(422, ['error' => 'This room has reached its file limit.']);
+            $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+            if (file_put_contents(uploadDirectory() . '/' . $storedName, $contents, LOCK_EX) === false) {
+                throw new RuntimeException('Could not store the uploaded file.');
+            }
+            $database->beginTransaction();
+            $database->prepare('INSERT INTO room_files (room_id, uploader_id, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)')->execute([$roomId, $userId, $name, $storedName, strlen($contents)]);
+            $fileId = (int) $database->lastInsertId();
+            $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body) VALUES (?, ?, ?, ?)')->execute([$roomId, $userId, 'file', 'shared a file: ' . $name]);
+            $database->commit();
+            respond(201, ['id' => $fileId]);
+        }
+
+        if ($action === 'room-download-file') {
+            $fileId = filter_var($request['fileId'] ?? null, FILTER_VALIDATE_INT);
+            if (!$fileId) respond(422, ['error' => 'A valid file is required.']);
+            $statement = $database->prepare('SELECT original_name, stored_name FROM room_files WHERE id = ? AND room_id = ?');
+            $statement->execute([$fileId, $roomId]);
+            $file = $statement->fetch(PDO::FETCH_ASSOC);
+            $path = $file ? uploadDirectory() . '/' . basename($file['stored_name']) : '';
+            if (!$file || !is_file($path)) respond(404, ['error' => 'File not found.']);
+            $extension = strtolower(pathinfo($file['stored_name'], PATHINFO_EXTENSION));
+            respond(200, ['name' => $file['original_name'], 'mime' => ROOM_FILE_TYPES[$extension] ?? 'application/octet-stream', 'data' => base64_encode((string) file_get_contents($path))]);
+        }
+
+        if ($action === 'end-room') {
+            if ($room['status'] === 'active') {
+                $enderName = (int) $room['tutor_id'] === $userId ? $room['tutor_name'] : $room['student_name'];
+                $database->beginTransaction();
+                try {
+                    $database->prepare("UPDATE study_rooms SET status = 'ended', ended_by = ?, ended_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'")->execute([$userId, $roomId]);
+                    $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body) VALUES (?, ?, ?, ?)')->execute([$roomId, $userId, 'system', $enderName . ' ended the session. This room is now read-only.']);
+                    $database->prepare("UPDATE users SET is_online = 0, availability_status = 'offline' WHERE id = ? AND availability_status = 'busy'")->execute([(int) $room['tutor_id']]);
+                    $database->commit();
+                } catch (Throwable $exception) {
+                    if ($database->inTransaction()) $database->rollBack();
+                    throw $exception;
+                }
+            }
+            respond(200, ['room' => roomPayload(loadRoomForUser($database, $roomId, $userId), $userId)]);
+        }
     }
 
     if ($action === 'booking') {
@@ -633,6 +893,19 @@ try {
         }
         $database->beginTransaction();
         try {
+            $roomIds = $database->prepare('SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?');
+            $roomIds->execute([$userId, $userId]);
+            $storedFiles = [];
+            foreach ($roomIds->fetchAll(PDO::FETCH_COLUMN) as $roomId) {
+                $files = $database->prepare('SELECT stored_name FROM room_files WHERE room_id = ?');
+                $files->execute([$roomId]);
+                $storedFiles = array_merge($storedFiles, $files->fetchAll(PDO::FETCH_COLUMN));
+                foreach (['room_files', 'room_messages'] as $table) {
+                    $database->prepare("DELETE FROM $table WHERE room_id = ?")->execute([$roomId]);
+                }
+                $database->prepare('DELETE FROM study_rooms WHERE id = ?')->execute([$roomId]);
+            }
+            $database->prepare('DELETE FROM match_requests WHERE student_id = ? OR tutor_id = ?')->execute([$userId, $userId]);
             foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id'] as $table => $column) {
                 $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");
                 $statement->execute([$userId]);
@@ -647,6 +920,9 @@ try {
         } catch (Throwable $exception) {
             $database->rollBack();
             throw $exception;
+        }
+        foreach ($storedFiles as $storedName) {
+            @unlink(uploadDirectory() . '/' . basename((string) $storedName));
         }
         respond(200, ['message' => 'User deleted.']);
     }

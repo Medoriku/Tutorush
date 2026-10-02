@@ -6,3 +6,4 @@ storage/*.sqlite
 storage/*.sqlite-*
 storage/*-debug.log
 .DS_Store
+storage/uploads/
