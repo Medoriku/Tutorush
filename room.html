@@ -187,14 +187,20 @@
       document.getElementById('uploadButton').disabled = !active;
 
       const videoLink = document.getElementById('videoLink');
+      const videoText = document.getElementById('videoText');
       if (active && room.videoToken) {
         const name = encodeURIComponent(JSON.stringify(viewer.name));
         videoLink.href = `https://meet.jit.si/TutorRush-${room.videoToken}#userInfo.displayName=${name}`;
-        videoLink.removeAttribute('aria-disabled');
         videoLink.style.display = '';
+        videoLink.textContent = room.role === 'tutor' ? (room.callStarted ? 'rejoin video call' : 'start video call') : 'join video call';
+        videoText.textContent = room.role === 'tutor'
+          ? 'You host this call. Start it first and sign in to Jitsi if asked, so you become the moderator; your student can join once you have started.'
+          : `${room.tutorName} has started the call. Join when you’re ready.`;
       } else {
         videoLink.style.display = 'none';
-        document.getElementById('videoText').textContent = 'The session has ended, so the video call is no longer available.';
+        videoText.textContent = active
+          ? `Waiting for ${room.tutorName} to start the video call. This page updates automatically.`
+          : 'The session has ended, so the video call is no longer available.';
       }
       updateTimer();
     }
@@ -320,6 +326,10 @@
       } finally {
         button.disabled = !room || room.status !== 'active';
       }
+    });
+
+    document.getElementById('videoLink').addEventListener('click', () => {
+      if (room && room.role === 'tutor' && !room.callStarted) api('room-start-call', { roomId }).then(refresh).catch((error) => setStatus(status, error.message, 'error'));
     });
 
     document.getElementById('endRoom').addEventListener('click', async () => {

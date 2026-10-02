@@ -190,7 +190,7 @@ function activeRoomId(PDO $database, int $userId): ?int {
 }
 
 function loadRoomForUser(PDO $database, int $roomId, int $userId): array {
-    $statement = $database->prepare('SELECT r.id, r.student_id, r.tutor_id, r.video_token, r.status, r.ended_by, r.created_at, r.ended_at, m.subject, m.help_type, m.duration, m.note, s.name AS student_name, t.name AS tutor_name FROM study_rooms r JOIN match_requests m ON m.id = r.match_request_id JOIN users s ON s.id = r.student_id JOIN users t ON t.id = r.tutor_id WHERE r.id = ? AND (r.student_id = ? OR r.tutor_id = ?)');
+    $statement = $database->prepare('SELECT r.id, r.student_id, r.tutor_id, r.video_token, r.status, r.ended_by, r.created_at, r.ended_at, r.call_started_at, m.subject, m.help_type, m.duration, m.note, s.name AS student_name, t.name AS tutor_name FROM study_rooms r JOIN match_requests m ON m.id = r.match_request_id JOIN users s ON s.id = r.student_id JOIN users t ON t.id = r.tutor_id WHERE r.id = ? AND (r.student_id = ? OR r.tutor_id = ?)');
     $statement->execute([$roomId, $userId, $userId]);
     $room = $statement->fetch(PDO::FETCH_ASSOC);
     if (!$room) respond(404, ['error' => 'Study room not found.']);
@@ -218,7 +218,8 @@ function roomPayload(array $room, int $viewerId): array {
         'createdAt' => isoTime($room['created_at']),
         'endedAt' => isoTime($room['ended_at']),
         'endedBy' => $room['ended_by'] === null ? null : ((int) $room['ended_by'] === $viewerId ? 'you' : 'partner'),
-        'videoToken' => $active ? $room['video_token'] : null,
+        'videoToken' => $active && ($viewerIsTutor || $room['call_started_at'] !== null) ? $room['video_token'] : null,
+        'callStarted' => $room['call_started_at'] !== null,
     ];
 }
 
@@ -459,11 +460,15 @@ try {
         FOREIGN KEY(uploader_id) REFERENCES users(id)
     )');
     $database->exec('CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room_id, id)');
+    $roomColumns = array_column($database->query('PRAGMA table_info(study_rooms)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('call_started_at', $roomColumns, true)) {
+        $database->exec('ALTER TABLE study_rooms ADD COLUMN call_started_at TEXT');
+    }
 
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'end-room', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'end-room', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -745,7 +750,7 @@ try {
         respond(200, ['rooms' => $rooms]);
     }
 
-    if (in_array($action, ['room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'end-room'], true)) {
+    if (in_array($action, ['room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'end-room'], true)) {
         $userId = requireUserId();
         $roomId = filter_var($request['roomId'] ?? null, FILTER_VALIDATE_INT);
         if (!$roomId) respond(422, ['error' => 'A valid room is required.']);
@@ -799,6 +804,16 @@ try {
             if (!$file || !is_file($path)) respond(404, ['error' => 'File not found.']);
             $extension = strtolower(pathinfo($file['stored_name'], PATHINFO_EXTENSION));
             respond(200, ['name' => $file['original_name'], 'mime' => ROOM_FILE_TYPES[$extension] ?? 'application/octet-stream', 'data' => base64_encode((string) file_get_contents($path))]);
+        }
+
+        if ($action === 'room-start-call') {
+            requireActiveRoom($room);
+            if ((int) $room['tutor_id'] !== $userId) respond(403, ['error' => 'Only the tutor can start the video call.']);
+            if ($room['call_started_at'] === null) {
+                $database->prepare('UPDATE study_rooms SET call_started_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$roomId]);
+                $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body) VALUES (?, ?, ?, ?)')->execute([$roomId, $userId, 'system', $room['tutor_name'] . ' started the video call. Open the Video call tab to join.']);
+            }
+            respond(200, ['started' => true]);
         }
 
         if ($action === 'end-room') {
