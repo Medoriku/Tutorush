@@ -30,8 +30,13 @@
     .msg.file { background: var(--yellow); }
     .chat-form { display: flex; gap: .6rem; margin-top: .8rem; }
     .chat-form textarea { flex: 1; min-height: 2.8rem; height: 2.8rem; resize: none; }
-    .video-card { text-align: center; padding: 2rem 1rem; }
-    .video-card .button, .video-card button { margin-top: 1rem; }
+    .video-card { padding: 1rem; }
+    .video-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 30%); gap: .7rem; min-height: 360px; }
+    .video-stage video { width: 100%; height: 100%; min-height: 220px; object-fit: cover; border: 1px solid var(--ink); border-radius: 1rem; background: #211d2a; }
+    .video-stage .local-video { min-height: 130px; }
+    .video-controls { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; margin-top: 1rem; }
+    .video-controls button[hidden] { display: none; }
+    .video-status { min-height: 1.4rem; text-align: center; }
     .file-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem .9rem; margin-top: .6rem; border: 1px solid var(--ink); border-radius: 1rem; background: #fff; }
     .file-row small { display: block; opacity: .75; margin-top: .15rem; }
     .upload { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
@@ -81,9 +86,17 @@
 
       <div class="tab-panel panel" id="tab-video">
         <div class="video-card">
-          <h2>Video call</h2>
-          <p id="videoText">Start a private video call with your study partner. It opens in a new window using Jitsi Meet. Both of you join the same call.</p>
-          <a class="button green" id="videoLink" href="#" target="_blank" rel="noopener noreferrer">start video call</a>
+          <div class="video-stage">
+            <video id="remoteVideo" autoplay playsinline></video>
+            <video id="localVideo" class="local-video" autoplay muted playsinline></video>
+          </div>
+          <p class="video-status" id="videoText" role="status">The call opens here. Your browser will ask for camera and microphone access.</p>
+          <div class="video-controls">
+            <button class="green" id="callButton" type="button" hidden>start call</button>
+            <button id="micButton" type="button" hidden>mute microphone</button>
+            <button id="cameraButton" type="button" hidden>turn camera off</button>
+            <button class="plain" id="leaveCallButton" type="button" hidden>leave call</button>
+          </div>
         </div>
       </div>
 
@@ -110,6 +123,14 @@
     let currentTab = 'chat';
     let pollTimer = null;
     let viewer = null;
+    let peerConnection = null;
+    let localStream = null;
+    let signalCursor = 0;
+    let pendingSignals = [];
+    let handledSignals = new Set();
+    let joinedCall = false;
+    let micEnabled = true;
+    let cameraEnabled = true;
 
     function switchTab(tab) {
       currentTab = tab;
@@ -154,6 +175,176 @@
       label.textContent = remaining < 0 ? 'Over the requested time' : 'Time remaining';
     }
 
+    function setVideoStatus(message) {
+      document.getElementById('videoText').textContent = message;
+    }
+
+    function updateCallControls() {
+      const startButton = document.getElementById('callButton');
+      const active = room && room.status === 'active';
+      const started = active && room.callStarted;
+      const canStart = active && room.role === 'tutor' && !joinedCall;
+      const canJoin = active && room.role === 'student' && started && !joinedCall;
+      startButton.hidden = !canStart && !canJoin;
+      startButton.textContent = room && room.role === 'tutor'
+        ? (started ? 'start / rejoin call' : 'start call')
+        : 'join call';
+      document.getElementById('micButton').hidden = !joinedCall;
+      document.getElementById('cameraButton').hidden = !joinedCall;
+      document.getElementById('leaveCallButton').hidden = !joinedCall;
+      if (!active) {
+        setVideoStatus('This study session has ended.');
+      } else if (!started) {
+        setVideoStatus(room.role === 'tutor'
+          ? 'Start the call here. Your browser will ask for camera and microphone access.'
+          : `Waiting for ${room.tutorName} to start the call.`);
+      } else if (!joinedCall && room.role === 'student') {
+        setVideoStatus(`${room.tutorName} started the call. Select Join call and allow camera and microphone access.`);
+      } else if (joinedCall) {
+        setVideoStatus('Connecting securely to your study partner...');
+      }
+    }
+
+    function sendSignal(signalType, payload) {
+      return api('room-send-signal', { roomId, signalType, payload });
+    }
+
+    function createPeerConnection() {
+      if (peerConnection) return peerConnection;
+      peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && room && room.status === 'active') {
+          sendSignal('ice', event.candidate.toJSON()).catch((error) => setVideoStatus(error.message));
+        }
+      };
+      peerConnection.ontrack = (event) => {
+        const remoteVideo = document.getElementById('remoteVideo');
+        if (event.streams[0]) remoteVideo.srcObject = event.streams[0];
+        remoteVideo.play().catch(() => {});
+        setVideoStatus(`You’re connected with ${room.partnerName}.`);
+      };
+      peerConnection.onconnectionstatechange = () => {
+        if (!peerConnection) return;
+        if (peerConnection.connectionState === 'connected') setVideoStatus(`You’re connected with ${room.partnerName}.`);
+        if (peerConnection.connectionState === 'failed') setVideoStatus('The call could not connect. Check your network permissions and try starting the call again.');
+        if (peerConnection.connectionState === 'disconnected') setVideoStatus('The connection was interrupted. Trying to reconnect...');
+      };
+      if (localStream) localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+      return peerConnection;
+    }
+
+    async function ensureLocalMedia() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera and microphone access requires a secure HTTPS connection or localhost.');
+      }
+      if (!localStream) {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        document.getElementById('localVideo').srcObject = localStream;
+      }
+    }
+
+    async function handleSignal(signal) {
+      if (signal.type === 'offer') {
+        if (room.role !== 'student' || !joinedCall) {
+          pendingSignals.push(signal);
+          return;
+        }
+        await ensureLocalMedia();
+        const connection = createPeerConnection();
+        await connection.setRemoteDescription(signal.payload);
+        const candidates = pendingSignals.filter((item) => item.type === 'ice');
+        pendingSignals = [];
+        for (const candidate of candidates) await connection.addIceCandidate(candidate.payload);
+        const answer = await connection.createAnswer();
+        await connection.setLocalDescription(answer);
+        await sendSignal('answer', connection.localDescription.toJSON());
+        return;
+      }
+      if (signal.type === 'answer' && room.role === 'tutor' && peerConnection) {
+        await peerConnection.setRemoteDescription(signal.payload);
+        const candidates = pendingSignals.filter((item) => item.type === 'ice');
+        pendingSignals = [];
+        for (const candidate of candidates) await peerConnection.addIceCandidate(candidate.payload);
+        return;
+      }
+      if (signal.type === 'ice') {
+        if (peerConnection && peerConnection.remoteDescription) {
+          await peerConnection.addIceCandidate(signal.payload);
+        } else {
+          pendingSignals.push(signal);
+        }
+      }
+    }
+
+    async function pollCallSignals() {
+      if (!room || room.status !== 'active' || !room.callStarted) return;
+      try {
+        const { signals } = await api('room-get-signals', { roomId, afterId: signalCursor });
+        for (const signal of signals) {
+          signalCursor = Math.max(signalCursor, signal.id);
+          if (handledSignals.has(signal.id)) continue;
+          handledSignals.add(signal.id);
+          try {
+            await handleSignal(signal);
+          } catch (error) {
+            setVideoStatus(error.message || 'Could not process the call connection.');
+          }
+        }
+      } catch (error) {
+        setVideoStatus(error.message);
+      }
+    }
+
+    async function startOrJoinCall() {
+      const button = document.getElementById('callButton');
+      button.disabled = true;
+      try {
+        setVideoStatus('Allow camera and microphone access to continue.');
+        await ensureLocalMedia();
+        joinedCall = true;
+        if (room.role === 'tutor') {
+          await api('room-start-call', { roomId });
+          signalCursor = 0;
+          handledSignals.clear();
+          pendingSignals = [];
+          const connection = createPeerConnection();
+          const offer = await connection.createOffer();
+          await connection.setLocalDescription(offer);
+          await sendSignal('offer', connection.localDescription.toJSON());
+        } else {
+          await pollCallSignals();
+        }
+        updateCallControls();
+      } catch (error) {
+        joinedCall = false;
+        setVideoStatus(error.message || 'Could not start the call.');
+        closeCallMedia();
+        updateCallControls();
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function closeCallMedia() {
+      if (peerConnection) {
+        peerConnection.onicecandidate = null;
+        peerConnection.close();
+        peerConnection = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+        localStream = null;
+      }
+      document.getElementById('localVideo').srcObject = null;
+      document.getElementById('remoteVideo').srcObject = null;
+      document.getElementById('micButton').textContent = 'mute microphone';
+      document.getElementById('cameraButton').textContent = 'turn camera off';
+      micEnabled = true;
+      cameraEnabled = true;
+    }
+
     function applyRoom(next) {
       room = next;
       const active = room.status === 'active';
@@ -186,22 +377,11 @@
       document.getElementById('fileInput').disabled = !active;
       document.getElementById('uploadButton').disabled = !active;
 
-      const videoLink = document.getElementById('videoLink');
-      const videoText = document.getElementById('videoText');
-      if (active && room.videoToken) {
-        const name = encodeURIComponent(JSON.stringify(viewer.name));
-        videoLink.href = `https://meet.jit.si/TutorRush-${room.videoToken}#userInfo.displayName=${name}`;
-        videoLink.style.display = '';
-        videoLink.textContent = room.role === 'tutor' ? (room.callStarted ? 'rejoin video call' : 'start video call') : 'join video call';
-        videoText.textContent = room.role === 'tutor'
-          ? 'You host this call. Start it first and sign in to Jitsi if asked, so you become the moderator; your student can join once you have started.'
-          : `${room.tutorName} has started the call. Join when you’re ready.`;
-      } else {
-        videoLink.style.display = 'none';
-        videoText.textContent = active
-          ? `Waiting for ${room.tutorName} to start the video call. This page updates automatically.`
-          : 'The session has ended, so the video call is no longer available.';
+      if (!active && joinedCall) {
+        joinedCall = false;
+        closeCallMedia();
       }
+      updateCallControls();
       updateTimer();
     }
 
@@ -279,6 +459,31 @@
 
     document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 
+    document.getElementById('callButton').addEventListener('click', startOrJoinCall);
+
+    document.getElementById('micButton').addEventListener('click', () => {
+      const track = localStream && localStream.getAudioTracks()[0];
+      if (!track) return;
+      micEnabled = !micEnabled;
+      track.enabled = micEnabled;
+      document.getElementById('micButton').textContent = micEnabled ? 'mute microphone' : 'unmute microphone';
+    });
+
+    document.getElementById('cameraButton').addEventListener('click', () => {
+      const track = localStream && localStream.getVideoTracks()[0];
+      if (!track) return;
+      cameraEnabled = !cameraEnabled;
+      track.enabled = cameraEnabled;
+      document.getElementById('cameraButton').textContent = cameraEnabled ? 'turn camera off' : 'turn camera on';
+    });
+
+    document.getElementById('leaveCallButton').addEventListener('click', () => {
+      joinedCall = false;
+      closeCallMedia();
+      updateCallControls();
+      setVideoStatus('You left the call. You can rejoin from this tab.');
+    });
+
     document.getElementById('chatForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const input = document.getElementById('chatInput');
@@ -328,10 +533,6 @@
       }
     });
 
-    document.getElementById('videoLink').addEventListener('click', () => {
-      if (room && room.role === 'tutor' && !room.callStarted) api('room-start-call', { roomId }).then(refresh).catch((error) => setStatus(status, error.message, 'error'));
-    });
-
     document.getElementById('endRoom').addEventListener('click', async () => {
       if (!confirm('End this session for both of you? The room will become read-only.')) return;
       try {
@@ -351,6 +552,7 @@
       if (!viewer) return;
       await refresh();
       if (room && room.status === 'active') pollTimer = setInterval(refresh, 3000);
+      setInterval(pollCallSignals, 1000);
       setInterval(updateTimer, 1000);
     })();
   </script>

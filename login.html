@@ -113,7 +113,16 @@
   });
 
   document.getElementById('google-login').addEventListener('click', () => {
-    document.getElementById('google-status').textContent = 'Google sign-in will be available soon.';
+    window.location.href = 'tutoring-api.php?action=google-start&flow=login';
   });
+
+  const googleErrors = {
+    not_configured: 'Google sign-in is not configured yet. Add the OAuth credentials on the server.',
+    cancelled: 'Google sign-in was cancelled.',
+    state: 'The sign-in request expired. Please try again.',
+    failed: 'Google sign-in could not be completed. Please try again.'
+  };
+  const googleError = new URLSearchParams(window.location.search).get('google_error');
+  if (googleError) document.getElementById('google-status').textContent = googleErrors[googleError] || googleErrors.failed;
 </script>
 </html>

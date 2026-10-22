@@ -2,6 +2,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/vendor/autoload.php';
+$googleConfigPath = __DIR__ . '/google-oauth-config.php';
+if (is_file($googleConfigPath)) {
+    require_once $googleConfigPath;
+}
 $smtpConfigPath = __DIR__ . '/smtp-config.php';
 if (is_file($smtpConfigPath)) {
     require_once $smtpConfigPath;
@@ -76,6 +80,148 @@ function requireCsrfToken(): void {
     $token = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!is_string($token) || !hash_equals(csrfToken(), $token)) {
         respond(403, ['error' => 'Your session verification expired. Refresh and try again.']);
+    }
+}
+
+function googleConfig(): array {
+    $clientId = defined('TUTORUSH_GOOGLE_CLIENT_ID') ? TUTORUSH_GOOGLE_CLIENT_ID : '';
+    $clientSecret = defined('TUTORUSH_GOOGLE_CLIENT_SECRET') ? TUTORUSH_GOOGLE_CLIENT_SECRET : '';
+    $redirectUri = defined('TUTORUSH_GOOGLE_REDIRECT_URI') ? TUTORUSH_GOOGLE_REDIRECT_URI : '';
+    if ($clientId === '' || $clientSecret === '' || $redirectUri === '') {
+        throw new RuntimeException('Google sign-in is not configured.');
+    }
+    return ['client_id' => $clientId, 'client_secret' => $clientSecret, 'redirect_uri' => $redirectUri];
+}
+
+function googleRequest(string $url, array $data = [], ?string $accessToken = null): array {
+    $headers = ['Accept: application/json'];
+    $content = '';
+    $method = 'GET';
+    if ($data) {
+        $method = 'POST';
+        $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+        $content = http_build_query($data);
+    }
+    if ($accessToken !== null) {
+        $headers[] = 'Authorization: Bearer ' . $accessToken;
+    }
+    $context = stream_context_create([
+        'http' => [
+            'method' => $method,
+            'header' => implode("\r\n", $headers),
+            'content' => $content,
+            'timeout' => 10,
+            'ignore_errors' => true,
+        ],
+        'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+    ]);
+    $response = file_get_contents($url, false, $context);
+    if ($response === false) {
+        throw new RuntimeException('Google sign-in could not reach Google.');
+    }
+    $decoded = json_decode($response, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('Google returned an invalid response.');
+    }
+    return $decoded;
+}
+
+function dashboardForRole(string $role): string {
+    return match ($role) {
+        'tutor' => 'tutor-dashboard.html',
+        'admin' => 'admin-dashboard.html',
+        default => 'student-dashboard.html',
+    };
+}
+
+function redirectGoogleError(string $flow, string $error): never {
+    $page = $flow === 'signup' ? 'sign-up.html' : 'login.html';
+    header('Location: ' . $page . '?google_error=' . rawurlencode($error), true, 302);
+    exit;
+}
+
+function handleGoogleOAuth(PDO $database, string $action): never {
+    $flow = ($_SESSION['google_oauth']['flow'] ?? ($_GET['flow'] ?? 'login')) === 'signup' ? 'signup' : 'login';
+    try {
+        $config = googleConfig();
+    } catch (Throwable $exception) {
+        debugLog('google_oauth_not_configured');
+        redirectGoogleError($flow, 'not_configured');
+    }
+
+    if ($action === 'google-start') {
+        $flow = ($_GET['flow'] ?? 'login') === 'signup' ? 'signup' : 'login';
+        $role = $_GET['role'] ?? 'student';
+        if (!in_array($role, ['student', 'tutor', 'both'], true)) $role = 'student';
+        $state = bin2hex(random_bytes(32));
+        $_SESSION['google_oauth'] = ['state' => $state, 'flow' => $flow, 'role' => $role];
+        $query = http_build_query([
+            'client_id' => $config['client_id'],
+            'redirect_uri' => $config['redirect_uri'],
+            'response_type' => 'code',
+            'scope' => 'openid email profile',
+            'state' => $state,
+        ]);
+        header('Location: https://accounts.google.com/o/oauth2/v2/auth?' . $query, true, 302);
+        exit;
+    }
+
+    $oauthState = $_SESSION['google_oauth'] ?? null;
+    unset($_SESSION['google_oauth']);
+    if (!is_array($oauthState) || !isset($_GET['state']) || !hash_equals($oauthState['state'], (string) $_GET['state'])) {
+        redirectGoogleError($flow, 'state');
+    }
+    $flow = $oauthState['flow'];
+    if (isset($_GET['error']) || !isset($_GET['code'])) {
+        redirectGoogleError($flow, 'cancelled');
+    }
+
+    try {
+        $tokens = googleRequest('https://oauth2.googleapis.com/token', [
+            'code' => (string) $_GET['code'],
+            'client_id' => $config['client_id'],
+            'client_secret' => $config['client_secret'],
+            'redirect_uri' => $config['redirect_uri'],
+            'grant_type' => 'authorization_code',
+        ]);
+        if (empty($tokens['access_token'])) {
+            throw new RuntimeException('Google did not return an access token.');
+        }
+        $identity = googleRequest('https://openidconnect.googleapis.com/v1/userinfo', [], $tokens['access_token']);
+        $email = strtolower(trim((string) ($identity['email'] ?? '')));
+        $name = trim((string) ($identity['name'] ?? ''));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !in_array($identity['email_verified'] ?? false, [true, 'true', 1, '1'], true)) {
+            throw new RuntimeException('Google did not provide a verified email address.');
+        }
+        if ($name === '') $name = strstr($email, '@', true) ?: 'Google user';
+        $name = mb_substr($name, 0, 80);
+
+        $statement = $database->prepare('SELECT id, name, email, role FROM users WHERE email = ?');
+        $statement->execute([$email]);
+        $user = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$user) {
+            $role = $email === strtolower(ADMIN_EMAIL) ? 'admin' : $oauthState['role'];
+            try {
+                $insert = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)');
+                $insert->execute([$name, $email, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $role]);
+                $user = ['id' => (int) $database->lastInsertId(), 'name' => $name, 'email' => $email, 'role' => $role];
+            } catch (PDOException $exception) {
+                $statement->execute([$email]);
+                $user = $statement->fetch(PDO::FETCH_ASSOC);
+                if (!$user) throw $exception;
+            }
+        } else {
+            $database->prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP) WHERE id = ?')->execute([(int) $user['id']]);
+        }
+
+        session_regenerate_id(true);
+        $_SESSION['tutorrush_user_id'] = (int) $user['id'];
+        $_SESSION['tutorrush_role'] = $user['role'];
+        header('Location: ' . dashboardForRole($user['role']), true, 302);
+        exit;
+    } catch (Throwable $exception) {
+        debugLog('google_oauth_failed', ['reason' => $exception->getMessage()]);
+        redirectGoogleError($flow, 'failed');
     }
 }
 
@@ -460,15 +606,34 @@ try {
         FOREIGN KEY(uploader_id) REFERENCES users(id)
     )');
     $database->exec('CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room_id, id)');
+    $database->exec('CREATE TABLE IF NOT EXISTS room_call_signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL,
+        sender_id INTEGER NOT NULL,
+        signal_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(room_id) REFERENCES study_rooms(id),
+        FOREIGN KEY(sender_id) REFERENCES users(id)
+    )');
+    $database->exec('CREATE INDEX IF NOT EXISTS idx_call_signals_room ON room_call_signals(room_id, id)');
     $roomColumns = array_column($database->query('PRAGMA table_info(study_rooms)')->fetchAll(PDO::FETCH_ASSOC), 'name');
     if (!in_array('call_started_at', $roomColumns, true)) {
         $database->exec('ALTER TABLE study_rooms ADD COLUMN call_started_at TEXT');
     }
 
+    $action = $_GET['action'] ?? '';
+    if (in_array($action, ['google-start', 'google-callback'], true)) {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+            redirectGoogleError('login', 'failed');
+        }
+        handleGoogleOAuth($database, $action);
+    }
+
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'end-room', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -750,7 +915,7 @@ try {
         respond(200, ['rooms' => $rooms]);
     }
 
-    if (in_array($action, ['room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'end-room'], true)) {
+    if (in_array($action, ['room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room'], true)) {
         $userId = requireUserId();
         $roomId = filter_var($request['roomId'] ?? null, FILTER_VALIDATE_INT);
         if (!$roomId) respond(422, ['error' => 'A valid room is required.']);
@@ -809,11 +974,43 @@ try {
         if ($action === 'room-start-call') {
             requireActiveRoom($room);
             if ((int) $room['tutor_id'] !== $userId) respond(403, ['error' => 'Only the tutor can start the video call.']);
+            $database->prepare('DELETE FROM room_call_signals WHERE room_id = ?')->execute([$roomId]);
+            $database->prepare('UPDATE study_rooms SET call_started_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$roomId]);
             if ($room['call_started_at'] === null) {
-                $database->prepare('UPDATE study_rooms SET call_started_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$roomId]);
                 $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body) VALUES (?, ?, ?, ?)')->execute([$roomId, $userId, 'system', $room['tutor_name'] . ' started the video call. Open the Video call tab to join.']);
             }
             respond(200, ['started' => true]);
+        }
+
+        if ($action === 'room-send-signal') {
+            requireActiveRoom($room);
+            if ($room['call_started_at'] === null) respond(409, ['error' => 'The tutor has not started the call yet.']);
+            $type = $request['signalType'] ?? '';
+            $payload = $request['payload'] ?? null;
+            if (!in_array($type, ['offer', 'answer', 'ice'], true) || !is_array($payload)) {
+                respond(422, ['error' => 'Invalid call signal.']);
+            }
+            $isTutor = (int) $room['tutor_id'] === $userId;
+            if (($type === 'offer' && !$isTutor) || ($type === 'answer' && $isTutor)) {
+                respond(403, ['error' => 'Only the tutor creates the offer, and only the student answers it.']);
+            }
+            $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES);
+            if ($encoded === false || strlen($encoded) > 20000) respond(422, ['error' => 'Call signal is too large.']);
+            $database->prepare('INSERT INTO room_call_signals (room_id, sender_id, signal_type, payload) VALUES (?, ?, ?, ?)')->execute([$roomId, $userId, $type, $encoded]);
+            respond(201, ['id' => (int) $database->lastInsertId()]);
+        }
+
+        if ($action === 'room-get-signals') {
+            requireActiveRoom($room);
+            $afterId = max(0, (int) ($request['afterId'] ?? 0));
+            $statement = $database->prepare('SELECT id, signal_type, payload FROM room_call_signals WHERE room_id = ? AND sender_id != ? AND id > ? ORDER BY id ASC LIMIT 100');
+            $statement->execute([$roomId, $userId, $afterId]);
+            $signals = array_map(static fn(array $signal): array => [
+                'id' => (int) $signal['id'],
+                'type' => $signal['signal_type'],
+                'payload' => json_decode($signal['payload'], true),
+            ], $statement->fetchAll(PDO::FETCH_ASSOC));
+            respond(200, ['signals' => $signals]);
         }
 
         if ($action === 'end-room') {
@@ -912,6 +1109,7 @@ try {
             $roomIds->execute([$userId, $userId]);
             $storedFiles = [];
             foreach ($roomIds->fetchAll(PDO::FETCH_COLUMN) as $roomId) {
+                $database->prepare('DELETE FROM room_call_signals WHERE room_id = ?')->execute([$roomId]);
                 $files = $database->prepare('SELECT stored_name FROM room_files WHERE room_id = ?');
                 $files->execute([$roomId]);
                 $storedFiles = array_merge($storedFiles, $files->fetchAll(PDO::FETCH_COLUMN));
@@ -920,6 +1118,7 @@ try {
                 }
                 $database->prepare('DELETE FROM study_rooms WHERE id = ?')->execute([$roomId]);
             }
+            $database->prepare('DELETE FROM room_call_signals WHERE sender_id = ? OR room_id IN (SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_requests WHERE student_id = ? OR tutor_id = ?')->execute([$userId, $userId]);
             foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id'] as $table => $column) {
                 $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");

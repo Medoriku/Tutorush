@@ -1,3 +1,6 @@
 <Files "smtp-config.php">
     Require all denied
 </Files>
+<Files "google-oauth-config.php">
+    Require all denied
+</Files>

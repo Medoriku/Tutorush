@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 smtp-config.php
+google-oauth-config.php
 storage/*.sqlite
 storage/*.sqlite-*
 storage/*-debug.log
