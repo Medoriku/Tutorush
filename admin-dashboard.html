@@ -1,21 +1,182 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Dashboard | TutorRush</title>
-<style>
-select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1.5 7 7.5 13 1.5' fill='none' stroke='%232d2443' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;background-repeat:no-repeat !important;background-position:right .75rem center !important;background-size:.8rem auto !important}
-select{appearance:none;-webkit-appearance:none;min-width:0;padding-right:2.4rem;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1.5 7 7.5 13 1.5' fill='none' stroke='%232d2443' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .25rem center;background-size:.8rem auto}.actions select{width:max-content;min-width:11rem;white-space:nowrap}.users select{min-width:8.5rem}
-:root{--ink:#2d2443;--pink:#ffb8d9;--yellow:#fff08e;--green:#d6fa99;--blue:#bbd4ff;--line:rgba(45,36,67,.2)}*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--ink);font-family:Arial,sans-serif;background:linear-gradient(120deg,#fff08e,#f6ebff 48%,#bbd4ff);background-size:160% 160%;animation:bg 16s ease-in-out infinite alternate}header{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:min(1120px,calc(100% - 2.5rem));margin:1rem auto;padding:.6rem .8rem;border:1px solid #fff;border-radius:999px;background:#ffffffaa;backdrop-filter:blur(12px);box-shadow:0 .6rem 1.5rem #69509920}.brand{display:flex;align-items:center;gap:.6rem;color:inherit;text-decoration:none;font-weight:700}.logo{display:grid;width:2.65rem;height:2.65rem;place-items:center;border-radius:.75rem;color:#fff;background:linear-gradient(135deg,var(--pink),#dccbff,var(--blue));font-weight:800}.actions{display:flex;align-items:center;gap:.6rem}select,button{padding:.65rem .8rem;border:1px solid var(--ink);border-radius:999px;background:#fff;font:600 .8rem Arial;color:var(--ink)}button{cursor:pointer;background:var(--pink);box-shadow:.1rem .1rem 0 #2d2443}main{width:min(100% - 2.5rem,1120px);margin:3rem auto}.eyebrow{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}h1{margin:.5rem 0;font-size:clamp(3rem,7vw,6rem);line-height:.9;letter-spacing:-.06em}h1 em{font-family:Georgia,serif;font-weight:400}.lead{max-width:42rem;font-size:1.1rem;line-height:1.5}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:2.5rem 0 1rem}.card{padding:1.35rem;border:1px solid var(--line);border-radius:1rem;background:#ffffffaa;box-shadow:0 .8rem 1.5rem #69509912}.card strong{display:block;margin-top:.7rem;font-size:2rem}.users{margin-top:1rem;overflow:auto}.users table{width:100%;border-collapse:collapse;min-width:760px}.users th,.users td{padding:.8rem;text-align:left;border-bottom:1px solid var(--line)}.users th{font-size:.75rem;text-transform:uppercase}.users select{padding:.45rem .6rem;background:var(--yellow)}.delete-button{background:var(--pink);padding:.45rem .65rem}.status{margin-top:2rem;color:#6d617f}.error{color:#a63e63}@keyframes bg{from{background-position:0 30%}to{background-position:100% 70%}}@media(max-width:700px){header{width:calc(100% - 1.5rem);margin:.75rem auto}.actions{flex-wrap:wrap;justify-content:flex-end}main{width:calc(100% - 1.5rem);margin:2rem auto}.stats{grid-template-columns:1fr}}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin Dashboard | TutorRush</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    main.page { width: min(100% - 2.5rem, 1120px); }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .stat { display: block; width: 100%; padding: 1.1rem; text-align: left; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; box-shadow: .2rem .2rem 0 var(--ink); }
+    .stat span { display: block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .stat strong { display: block; margin-top: .3rem; font-size: 2.4rem; line-height: 1; }
+    button.stat.current { background: var(--yellow); }
+    .stat.static { cursor: default; background: #ffffffcc; }
+    .toolbar { display: flex; gap: .8rem; flex-wrap: wrap; align-items: center; margin-top: 1.5rem; }
+    .toolbar input { flex: 1; min-width: 14rem; }
+    .toolbar select { min-width: 13rem; }
+    .table-wrap { overflow-x: auto; margin-top: 1rem; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; box-shadow: .25rem .25rem 0 var(--ink); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: .8rem 1rem; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; background: #f6ebff; }
+    tr:last-child td { border-bottom: 0; }
+    td select { min-width: 8rem; padding: .45rem 2rem .45rem .6rem; }
+    .delete-button { padding: .45rem .8rem; background: #ffb4ab; }
+    .empty { padding: 1.5rem; text-align: center; }
+  </style>
 </head>
 <body>
-<header><a class="brand" href="admin-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a><div class="actions"><select id="viewSwitcher" aria-label="Dashboard view"></select><button id="logout">log out</button></div></header>
-<main><p class="eyebrow">Admin dashboard</p><h1>Keep TutorRush<br><em>moving.</em></h1><p class="lead">Manage roles, review activity, delete accounts, and switch into the student or tutor experience.</p><section class="stats"><article class="card"><span>Accounts</span><strong id="accountCount">-</strong></article><article class="card"><span>Bookings</span><strong id="bookingCount">-</strong></article><article class="card"><span>Messages</span><strong id="messageCount">-</strong></article></section><section class="card users"><h2>All users</h2><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Change role</th><th>Delete</th></tr></thead><tbody id="usersBody"></tbody></table></section><p class="status" id="status" role="status"></p></main>
-<script>
-const routes={student:'student-dashboard.html',tutor:'tutor-dashboard.html',admin:'admin-dashboard.html'};let csrfToken='';const selector=document.getElementById('viewSwitcher');const status=document.getElementById('status');
-async function api(action,payload={}){const response=await fetch(`tutoring-api.php?action=${action}`,{method:'POST',headers:{'Content-Type':'application/json',...(csrfToken?{'X-CSRF-Token':csrfToken}: {})},body:JSON.stringify({action,...payload})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed');return data}
-async function init(){try{const session=await api('session');csrfToken=session.csrfToken;if(!session.user){location.replace('login.html');return}if(session.user.role!=='admin'){location.replace(routes[session.user.role==='tutor'?'tutor':'student']);return}selector.innerHTML=['student','tutor','admin'].map(role=>`<option value="${role}" ${role==='admin'?'selected':''}>${role==='student'?'Student dashboard':role==='tutor'?'Tutor dashboard':'Admin dashboard'}</option>`).join('');selector.addEventListener('change',()=>location.href=routes[selector.value]);await loadUsers()}catch(error){status.textContent=error.message;status.className='status error'}}
-async function loadUsers(){const data=await api('admin-dashboard');document.getElementById('accountCount').textContent=data.summary.users;document.getElementById('bookingCount').textContent=data.summary.bookings;document.getElementById('messageCount').textContent=data.summary.messages;const body=document.getElementById('usersBody');body.replaceChildren();data.users.forEach(user=>{const row=document.createElement('tr');[user.name,user.email].forEach(value=>{const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell)});const roleCell=document.createElement('td');roleCell.textContent=user.role;row.appendChild(roleCell);const roleCellAction=document.createElement('td');const roleSelect=document.createElement('select');['student','tutor','both','admin'].forEach(role=>{const option=document.createElement('option');option.value=role;option.textContent=role;option.selected=role===user.role;roleSelect.appendChild(option)});roleSelect.addEventListener('change',async()=>{try{await api('admin-set-role',{userId:user.id,role:roleSelect.value});await loadUsers()}catch(error){status.textContent=error.message;status.className='status error'}});roleCellAction.appendChild(roleSelect);row.appendChild(roleCellAction);const deleteCell=document.createElement('td');const deleteButton=document.createElement('button');deleteButton.className='delete-button';deleteButton.textContent='delete';deleteButton.addEventListener('click',async()=>{if(!confirm(`Delete ${user.name}'s account? This cannot be undone.`))return;try{await api('admin-delete-user',{userId:user.id});await loadUsers()}catch(error){status.textContent=error.message;status.className='status error'}});deleteCell.appendChild(deleteButton);row.appendChild(deleteCell);body.appendChild(row)})}
-document.getElementById('logout').addEventListener('click',()=>location.href='login.html');init();
-</script>
-</body></html>
+  <header class="top">
+    <a class="brand" href="admin-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a>
+    <div class="actions"><select id="viewSwitcher" aria-label="Dashboard view"></select><button id="logout" type="button">log out</button></div>
+  </header>
+  <main class="page">
+    <p class="eyebrow">Admin dashboard</p>
+    <h1>Keep TutorRush<br><em>moving.</em></h1>
+    <p class="lead">Manage roles, review accounts, and switch into the student or tutor experience.</p>
+
+    <section class="stats" aria-label="Account totals">
+      <button class="stat current" type="button" data-filter="all"><span>Total accounts</span><strong id="countAll">-</strong></button>
+      <button class="stat" type="button" data-filter="student"><span>Students</span><strong id="countStudent">-</strong></button>
+      <button class="stat" type="button" data-filter="tutor"><span>Tutors</span><strong id="countTutor">-</strong></button>
+      <button class="stat" type="button" data-filter="admin"><span>Admins</span><strong id="countAdmin">-</strong></button>
+      <div class="stat static"><span>Bookings</span><strong id="bookingCount">-</strong></div>
+      <div class="stat static"><span>Messages</span><strong id="messageCount">-</strong></div>
+    </section>
+    <p id="bothNote" style="font-size:.85rem"></p>
+
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="Search by name or email..." aria-label="Search accounts">
+      <select id="roleFilter" aria-label="Filter by role">
+        <option value="all">All accounts</option>
+        <option value="student">Students (incl. both)</option>
+        <option value="tutor">Tutors (incl. both)</option>
+        <option value="both">Both roles only</option>
+        <option value="admin">Admins</option>
+      </select>
+    </section>
+    <p class="status" id="status" role="status"></p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Change role</th><th></th></tr></thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const status = document.getElementById('status');
+    const roleFilter = document.getElementById('roleFilter');
+    const search = document.getElementById('search');
+    let users = [];
+    let currentUserId = null;
+
+    function matchesRole(user, filter) {
+      if (filter === 'all') return true;
+      if (filter === 'student') return user.role === 'student' || user.role === 'both';
+      if (filter === 'tutor') return user.role === 'tutor' || user.role === 'both';
+      return user.role === filter;
+    }
+
+    function renderCounts() {
+      const count = (filter) => users.filter((user) => matchesRole(user, filter)).length;
+      document.getElementById('countAll').textContent = users.length;
+      document.getElementById('countStudent').textContent = count('student');
+      document.getElementById('countTutor').textContent = count('tutor');
+      document.getElementById('countAdmin').textContent = count('admin');
+      const both = count('both');
+      document.getElementById('bothNote').textContent = both ? `${both} account${both === 1 ? '' : 's'} with both roles count as a student and a tutor.` : '';
+    }
+
+    function renderUsers() {
+      const filter = roleFilter.value;
+      const term = search.value.trim().toLowerCase();
+      document.querySelectorAll('.stat[data-filter]').forEach((card) => card.classList.toggle('current', card.dataset.filter === filter));
+      const visible = users.filter((user) => matchesRole(user, filter) && (!term || user.name.toLowerCase().includes(term) || user.email.toLowerCase().includes(term)));
+      const body = document.getElementById('usersBody');
+      body.replaceChildren();
+      if (!visible.length) {
+        const row = element('tr');
+        const cell = element('td', 'empty', 'No accounts match your search.');
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        body.appendChild(row);
+      }
+      visible.forEach((user) => {
+        const row = element('tr');
+        row.append(element('td', '', user.name), element('td', '', user.email), element('td', '', user.role), element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
+
+        const roleCell = element('td');
+        const roleSelect = element('select');
+        ['student', 'tutor', 'both', 'admin'].forEach((role) => {
+          const option = new Option(role, role, false, role === user.role);
+          roleSelect.add(option);
+        });
+        roleSelect.addEventListener('change', async () => {
+          try {
+            await api('admin-set-role', { userId: user.id, role: roleSelect.value });
+            await loadUsers();
+          } catch (error) {
+            setStatus(status, error.message, 'error');
+            roleSelect.value = user.role;
+          }
+        });
+        roleCell.appendChild(roleSelect);
+
+        const deleteCell = element('td');
+        const deleteButton = element('button', 'delete-button', 'delete');
+        deleteButton.type = 'button';
+        deleteButton.disabled = user.id === currentUserId;
+        deleteButton.addEventListener('click', async () => {
+          if (!confirm(`Delete ${user.name}'s account? This cannot be undone.`)) return;
+          try {
+            await api('admin-delete-user', { userId: user.id });
+            await loadUsers();
+          } catch (error) {
+            setStatus(status, error.message, 'error');
+          }
+        });
+        deleteCell.appendChild(deleteButton);
+        row.append(roleCell, deleteCell);
+        body.appendChild(row);
+      });
+      setStatus(status, `Showing ${visible.length} of ${users.length} accounts.`);
+    }
+
+    async function loadUsers() {
+      const data = await api('admin-dashboard');
+      users = data.users;
+      document.getElementById('bookingCount').textContent = data.summary.bookings;
+      document.getElementById('messageCount').textContent = data.summary.messages;
+      renderCounts();
+      renderUsers();
+    }
+
+    document.querySelectorAll('.stat[data-filter]').forEach((card) => card.addEventListener('click', () => {
+      roleFilter.value = card.dataset.filter;
+      renderUsers();
+    }));
+    roleFilter.addEventListener('change', renderUsers);
+    search.addEventListener('input', renderUsers);
+
+    (async () => {
+      try {
+        const user = await loadSession();
+        if (!user) return;
+        if (user.role !== 'admin') {
+          location.replace(routes[user.role === 'tutor' ? 'tutor' : 'student']);
+          return;
+        }
+        currentUserId = user.id;
+        setupHeader(user, 'admin');
+        await loadUsers();
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+    })();
+  </script>
+</body>
+</html>

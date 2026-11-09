@@ -31,12 +31,28 @@
     .chat-form { display: flex; gap: .6rem; margin-top: .8rem; }
     .chat-form textarea { flex: 1; min-height: 2.8rem; height: 2.8rem; resize: none; }
     .video-card { padding: 1rem; }
-    .video-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 30%); gap: .7rem; min-height: 360px; }
-    .video-stage video { width: 100%; height: 100%; min-height: 220px; object-fit: cover; border: 1px solid var(--ink); border-radius: 1rem; background: #211d2a; }
-    .video-stage .local-video { min-height: 130px; }
+    .video-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; overflow: hidden; border: 1px solid var(--ink); border-radius: 1rem; background: #211d2a; }
+    .tile { position: absolute; overflow: hidden; }
+    .tile.remote { inset: 0; }
+    .tile.local { right: .7rem; bottom: .7rem; z-index: 2; width: min(26%, 220px); aspect-ratio: 16 / 9; border: 2px solid #fff; border-radius: .8rem; background: #322b40; }
+    .tile video { width: 100%; height: 100%; object-fit: cover; }
+    .tile.local video { transform: scaleX(-1); }
+    .tile video.contain { object-fit: contain; transform: none; background: #000; }
+    .tile .name { position: absolute; left: .5rem; bottom: .4rem; padding: .1rem .5rem; border-radius: 999px; background: #0009; color: #fff; font-size: .72rem; font-weight: 700; }
+    .tile .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 1rem; color: #fff; font-weight: 700; text-align: center; }
+    .tile .overlay[hidden] { display: none; }
+    .tile .overlay.cam { background: #211d2acc; }
+    .mic-badge { position: absolute; top: .5rem; left: .5rem; display: none; width: 1.7rem; height: 1.7rem; place-items: center; border-radius: 50%; background: #d93025; color: #fff; box-shadow: 0 0 0 2px #fff; }
+    .mic-badge.show { display: grid; }
+    .mic-badge svg { width: 1rem; height: 1rem; }
     .video-controls { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; margin-top: 1rem; }
     .video-controls button[hidden] { display: none; }
+    .video-controls button.off { background: #ffb4ab; }
     .video-status { min-height: 1.4rem; text-align: center; }
+    .video-card.expanded { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; padding: 1rem; background: #1b1626; }
+    .video-card.expanded .video-stage { flex: 1; aspect-ratio: auto; max-height: none; min-height: 0; }
+    .video-card.expanded .video-status { color: #fff; }
+    body.no-scroll { overflow: hidden; }
     .file-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem .9rem; margin-top: .6rem; border: 1px solid var(--ink); border-radius: 1rem; background: #fff; }
     .file-row small { display: block; opacity: .75; margin-top: .15rem; }
     .upload { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
@@ -85,16 +101,33 @@
       </div>
 
       <div class="tab-panel panel" id="tab-video">
-        <div class="video-card">
+        <div class="video-card" id="videoCard">
           <div class="video-stage">
-            <video id="remoteVideo" autoplay playsinline></video>
-            <video id="localVideo" class="local-video" autoplay muted playsinline></video>
+            <div class="tile remote">
+              <video id="remoteVideo" autoplay playsinline></video>
+              <div class="overlay" id="remotePlaceholder">Waiting for your study partner to connect...</div>
+              <div class="overlay cam" id="remoteCamOff" hidden>Camera off</div>
+              <span class="mic-badge" id="remoteMic" title="Their microphone is off" role="img" aria-label="Their microphone is off">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/><path d="M3 3l18 18"/></svg>
+              </span>
+              <span class="name" id="remoteName">Partner</span>
+            </div>
+            <div class="tile local">
+              <video id="localVideo" autoplay muted playsinline></video>
+              <div class="overlay cam" id="localCamOff" hidden>Camera off</div>
+              <span class="mic-badge" id="localMic" title="Your microphone is off" role="img" aria-label="Your microphone is off">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/><path d="M3 3l18 18"/></svg>
+              </span>
+              <span class="name">You</span>
+            </div>
           </div>
           <p class="video-status" id="videoText" role="status">The call opens here. Your browser will ask for camera and microphone access.</p>
           <div class="video-controls">
             <button class="green" id="callButton" type="button" hidden>start call</button>
             <button id="micButton" type="button" hidden>mute microphone</button>
             <button id="cameraButton" type="button" hidden>turn camera off</button>
+            <button class="yellow" id="screenButton" type="button" hidden>share screen</button>
+            <button class="plain" id="expandButton" type="button">expand</button>
             <button class="plain" id="leaveCallButton" type="button" hidden>leave call</button>
           </div>
         </div>
@@ -131,9 +164,13 @@
     let joinedCall = false;
     let micEnabled = true;
     let cameraEnabled = true;
+    let dataChannel = null;
+    let screenStream = null;
+    let polling = false;
 
     function switchTab(tab) {
       currentTab = tab;
+      if (tab !== 'video') setExpanded(false);
       document.querySelectorAll('.tabs button').forEach((button) => {
         button.classList.toggle('current', button.dataset.tab === tab);
         if (button.dataset.tab === tab) button.classList.remove('unread');
@@ -183,15 +220,17 @@
       const startButton = document.getElementById('callButton');
       const active = room && room.status === 'active';
       const started = active && room.callStarted;
-      const canStart = active && room.role === 'tutor' && !joinedCall;
+      const canStart = active && room.role === 'tutor';
       const canJoin = active && room.role === 'student' && started && !joinedCall;
       startButton.hidden = !canStart && !canJoin;
       startButton.textContent = room && room.role === 'tutor'
-        ? (started ? 'start / rejoin call' : 'start call')
+        ? (joinedCall ? 'reconnect call' : started ? 'start / rejoin call' : 'start call')
         : 'join call';
       document.getElementById('micButton').hidden = !joinedCall;
       document.getElementById('cameraButton').hidden = !joinedCall;
+      document.getElementById('screenButton').hidden = !joinedCall || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
       document.getElementById('leaveCallButton').hidden = !joinedCall;
+      if (room) document.getElementById('remoteName').textContent = room.partnerName;
       if (!active) {
         setVideoStatus('This study session has ended.');
       } else if (!started) {
@@ -201,7 +240,8 @@
       } else if (!joinedCall && room.role === 'student') {
         setVideoStatus(`${room.tutorName} started the call. Select Join call and allow camera and microphone access.`);
       } else if (joinedCall) {
-        setVideoStatus('Connecting securely to your study partner...');
+        const connected = peerConnection && peerConnection.connectionState === 'connected';
+        setVideoStatus(connected ? `You’re connected with ${room.partnerName}.` : 'Connecting securely to your study partner...');
       }
     }
 
@@ -223,8 +263,10 @@
         const remoteVideo = document.getElementById('remoteVideo');
         if (event.streams[0]) remoteVideo.srcObject = event.streams[0];
         remoteVideo.play().catch(() => {});
+        document.getElementById('remotePlaceholder').hidden = true;
         setVideoStatus(`You’re connected with ${room.partnerName}.`);
       };
+      peerConnection.ondatachannel = (event) => attachChannel(event.channel);
       peerConnection.onconnectionstatechange = () => {
         if (!peerConnection) return;
         if (peerConnection.connectionState === 'connected') setVideoStatus(`You’re connected with ${room.partnerName}.`);
@@ -232,7 +274,131 @@
         if (peerConnection.connectionState === 'disconnected') setVideoStatus('The connection was interrupted. Trying to reconnect...');
       };
       if (localStream) localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+      if (screenStream) replaceVideoTrack(screenStream.getVideoTracks()[0]);
       return peerConnection;
+    }
+
+    function resetPeer() {
+      if (dataChannel) {
+        dataChannel.onopen = null;
+        dataChannel.onmessage = null;
+        dataChannel = null;
+      }
+      if (peerConnection) {
+        peerConnection.onicecandidate = null;
+        peerConnection.close();
+        peerConnection = null;
+      }
+      document.getElementById('remoteVideo').srcObject = null;
+      document.getElementById('remotePlaceholder').hidden = false;
+      applyRemoteState({ mic: true, camera: true, screen: false });
+    }
+
+    function applyRemoteState(state) {
+      document.getElementById('remoteMic').classList.toggle('show', state.mic === false);
+      document.getElementById('remoteCamOff').hidden = !(state.camera === false && !state.screen);
+      document.getElementById('remoteVideo').classList.toggle('contain', state.screen === true);
+    }
+
+    function sendState() {
+      if (dataChannel && dataChannel.readyState === 'open') {
+        dataChannel.send(JSON.stringify({ mic: micEnabled, camera: cameraEnabled, screen: Boolean(screenStream) }));
+      }
+    }
+
+    function attachChannel(channel) {
+      dataChannel = channel;
+      channel.onopen = sendState;
+      channel.onmessage = (event) => {
+        try {
+          const state = JSON.parse(event.data);
+          applyRemoteState({ mic: state.mic !== false, camera: state.camera !== false, screen: state.screen === true });
+        } catch (error) {
+          // Ignore malformed state messages.
+        }
+      };
+    }
+
+    function updateMediaIndicators() {
+      const sharing = Boolean(screenStream);
+      document.getElementById('localMic').classList.toggle('show', !micEnabled);
+      document.getElementById('localCamOff').hidden = cameraEnabled || sharing;
+      document.getElementById('localVideo').classList.toggle('contain', sharing);
+      const micButton = document.getElementById('micButton');
+      micButton.textContent = micEnabled ? 'mute microphone' : 'unmute microphone';
+      micButton.classList.toggle('off', !micEnabled);
+      const cameraButton = document.getElementById('cameraButton');
+      cameraButton.textContent = cameraEnabled ? 'turn camera off' : 'turn camera on';
+      cameraButton.classList.toggle('off', !cameraEnabled);
+      cameraButton.disabled = sharing;
+      document.getElementById('screenButton').textContent = sharing ? 'stop sharing' : 'share screen';
+    }
+
+    async function replaceVideoTrack(track) {
+      const sender = peerConnection && peerConnection.getSenders().find((item) => item.track && item.track.kind === 'video');
+      if (sender && track) await sender.replaceTrack(track);
+    }
+
+    async function stopScreenShare() {
+      if (!screenStream) return;
+      screenStream.getTracks().forEach((track) => track.stop());
+      screenStream = null;
+      const cameraTrack = localStream && localStream.getVideoTracks()[0];
+      await replaceVideoTrack(cameraTrack);
+      document.getElementById('localVideo').srcObject = localStream;
+      updateMediaIndicators();
+      sendState();
+    }
+
+    async function startScreenShare() {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      } catch (error) {
+        screenStream = null;
+        setVideoStatus('Screen sharing was cancelled or is not allowed.');
+        return;
+      }
+      const track = screenStream.getVideoTracks()[0];
+      track.onended = stopScreenShare;
+      await replaceVideoTrack(track);
+      document.getElementById('localVideo').srcObject = screenStream;
+      updateMediaIndicators();
+      sendState();
+    }
+
+    function setExpanded(on) {
+      const card = document.getElementById('videoCard');
+      if (card.classList.contains('expanded') === on) return;
+      card.classList.toggle('expanded', on);
+      document.body.classList.toggle('no-scroll', on);
+      document.getElementById('expandButton').textContent = on ? 'exit full view' : 'expand';
+      if (on && card.requestFullscreen && !document.fullscreenElement) card.requestFullscreen().catch(() => {});
+      if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+
+    async function sendNewOffer() {
+      resetPeer();
+      signalCursor = 0;
+      handledSignals.clear();
+      pendingSignals = [];
+      await api('room-start-call', { roomId });
+      const connection = createPeerConnection();
+      attachChannel(connection.createDataChannel('state'));
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+      await sendSignal('offer', connection.localDescription.toJSON());
+    }
+
+    async function addQueuedCandidates(connection) {
+      const candidates = pendingSignals.filter((item) => item.type === 'ice');
+      pendingSignals = [];
+      for (const candidate of candidates) {
+        try {
+          await connection.addIceCandidate(candidate.payload);
+        } catch (error) {
+          // Stale candidates from a previous connection are safe to drop.
+        }
+      }
     }
 
     async function ensureLocalMedia() {
@@ -247,31 +413,33 @@
 
     async function handleSignal(signal) {
       if (signal.type === 'offer') {
-        if (room.role !== 'student' || !joinedCall) {
-          pendingSignals.push(signal);
-          return;
-        }
+        if (room.role !== 'student' || !joinedCall) return;
         await ensureLocalMedia();
+        resetPeer();
         const connection = createPeerConnection();
         await connection.setRemoteDescription(signal.payload);
-        const candidates = pendingSignals.filter((item) => item.type === 'ice');
-        pendingSignals = [];
-        for (const candidate of candidates) await connection.addIceCandidate(candidate.payload);
+        await addQueuedCandidates(connection);
         const answer = await connection.createAnswer();
         await connection.setLocalDescription(answer);
         await sendSignal('answer', connection.localDescription.toJSON());
         return;
       }
-      if (signal.type === 'answer' && room.role === 'tutor' && peerConnection) {
+      if (signal.type === 'answer' && room.role === 'tutor') {
+        if (!peerConnection || peerConnection.signalingState !== 'have-local-offer') {
+          await sendNewOffer();
+          return;
+        }
         await peerConnection.setRemoteDescription(signal.payload);
-        const candidates = pendingSignals.filter((item) => item.type === 'ice');
-        pendingSignals = [];
-        for (const candidate of candidates) await peerConnection.addIceCandidate(candidate.payload);
+        await addQueuedCandidates(peerConnection);
         return;
       }
       if (signal.type === 'ice') {
         if (peerConnection && peerConnection.remoteDescription) {
-          await peerConnection.addIceCandidate(signal.payload);
+          try {
+            await peerConnection.addIceCandidate(signal.payload);
+          } catch (error) {
+            // Stale candidates from a previous connection are safe to drop.
+          }
         } else {
           pendingSignals.push(signal);
         }
@@ -279,7 +447,8 @@
     }
 
     async function pollCallSignals() {
-      if (!room || room.status !== 'active' || !room.callStarted) return;
+      if (polling || !joinedCall || !room || room.status !== 'active' || !room.callStarted) return;
+      polling = true;
       try {
         const { signals } = await api('room-get-signals', { roomId, afterId: signalCursor });
         for (const signal of signals) {
@@ -294,6 +463,8 @@
         }
       } catch (error) {
         setVideoStatus(error.message);
+      } finally {
+        polling = false;
       }
     }
 
@@ -305,15 +476,11 @@
         await ensureLocalMedia();
         joinedCall = true;
         if (room.role === 'tutor') {
-          await api('room-start-call', { roomId });
+          await sendNewOffer();
+        } else {
           signalCursor = 0;
           handledSignals.clear();
           pendingSignals = [];
-          const connection = createPeerConnection();
-          const offer = await connection.createOffer();
-          await connection.setLocalDescription(offer);
-          await sendSignal('offer', connection.localDescription.toJSON());
-        } else {
           await pollCallSignals();
         }
         updateCallControls();
@@ -328,21 +495,19 @@
     }
 
     function closeCallMedia() {
-      if (peerConnection) {
-        peerConnection.onicecandidate = null;
-        peerConnection.close();
-        peerConnection = null;
+      resetPeer();
+      if (screenStream) {
+        screenStream.getTracks().forEach((track) => track.stop());
+        screenStream = null;
       }
       if (localStream) {
         localStream.getTracks().forEach((track) => track.stop());
         localStream = null;
       }
       document.getElementById('localVideo').srcObject = null;
-      document.getElementById('remoteVideo').srcObject = null;
-      document.getElementById('micButton').textContent = 'mute microphone';
-      document.getElementById('cameraButton').textContent = 'turn camera off';
       micEnabled = true;
       cameraEnabled = true;
+      updateMediaIndicators();
     }
 
     function applyRoom(next) {
@@ -466,7 +631,8 @@
       if (!track) return;
       micEnabled = !micEnabled;
       track.enabled = micEnabled;
-      document.getElementById('micButton').textContent = micEnabled ? 'mute microphone' : 'unmute microphone';
+      updateMediaIndicators();
+      sendState();
     });
 
     document.getElementById('cameraButton').addEventListener('click', () => {
@@ -474,7 +640,22 @@
       if (!track) return;
       cameraEnabled = !cameraEnabled;
       track.enabled = cameraEnabled;
-      document.getElementById('cameraButton').textContent = cameraEnabled ? 'turn camera off' : 'turn camera on';
+      updateMediaIndicators();
+      sendState();
+    });
+
+    document.getElementById('screenButton').addEventListener('click', () => (screenStream ? stopScreenShare() : startScreenShare()));
+
+    document.getElementById('expandButton').addEventListener('click', () => {
+      setExpanded(!document.getElementById('videoCard').classList.contains('expanded'));
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement) setExpanded(false);
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setExpanded(false);
     });
 
     document.getElementById('leaveCallButton').addEventListener('click', () => {
