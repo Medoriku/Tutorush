@@ -151,6 +151,7 @@
       const user = await loadSession();
       if (!user) return;
       setupHeader(user, 'tutor');
+      initFeedback();
       availability = user.availabilityStatus || 'offline';
       [...document.getElementById('subjectList').options].forEach((option) => { option.selected = (user.subjects || []).includes(option.value); });
       renderAvailability();

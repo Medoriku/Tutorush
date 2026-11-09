@@ -153,3 +153,17 @@ textarea { min-height: 5.5rem; resize: vertical; }
   .form-grid { grid-template-columns: 1fr; }
   .row { flex-direction: column; align-items: flex-start; }
 }
+
+[hidden] { display: none !important; }
+
+.toasts { position: fixed; top: 1rem; right: 1rem; z-index: 300; display: grid; gap: .5rem; max-width: min(22rem, calc(100% - 2rem)); }
+.toast {
+  padding: .7rem 1rem; border: 1px solid var(--ink); border-radius: 1rem; background: var(--yellow);
+  box-shadow: .15rem .15rem 0 var(--ink); font-weight: 700; font-size: .85rem;
+}
+
+.feedback-dialog { width: min(30rem, calc(100% - 2rem)); padding: 1.4rem; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; color: var(--ink); box-shadow: .3rem .3rem 0 var(--ink); }
+.feedback-dialog::backdrop { background: #2d244355; }
+.feedback-dialog h2 { margin: 0 0 .4rem; }
+.feedback-dialog .field { margin-top: .8rem; }
+.feedback-dialog .dialog-actions { display: flex; gap: .6rem; justify-content: flex-end; margin-top: 1rem; }

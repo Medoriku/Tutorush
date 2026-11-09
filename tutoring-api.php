@@ -370,13 +370,14 @@ function roomPayload(array $room, int $viewerId): array {
 }
 
 function roomMessages(PDO $database, int $roomId, int $viewerId, int $afterId): array {
-    $statement = $database->prepare('SELECT m.id, m.sender_id, m.kind, m.body, m.created_at, u.name AS sender_name FROM room_messages m JOIN users u ON u.id = m.sender_id WHERE m.room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 200');
+    $statement = $database->prepare('SELECT m.id, m.sender_id, m.kind, m.body, m.file_id, m.created_at, u.name AS sender_name FROM room_messages m JOIN users u ON u.id = m.sender_id WHERE m.room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 200');
     $statement->execute([$roomId, $afterId]);
     return array_map(static fn(array $row): array => [
         'id' => (int) $row['id'],
         'mine' => (int) $row['sender_id'] === $viewerId,
         'kind' => $row['kind'],
         'body' => $row['body'],
+        'fileId' => $row['file_id'] === null ? null : (int) $row['file_id'],
         'senderName' => $row['sender_name'],
         'createdAt' => isoTime($row['created_at']),
     ], $statement->fetchAll(PDO::FETCH_ASSOC));
@@ -621,6 +622,23 @@ try {
     if (!in_array('call_started_at', $roomColumns, true)) {
         $database->exec('ALTER TABLE study_rooms ADD COLUMN call_started_at TEXT');
     }
+    $messageColumns = array_column($database->query('PRAGMA table_info(room_messages)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('file_id', $messageColumns, true)) {
+        $database->exec('ALTER TABLE room_messages ADD COLUMN file_id INTEGER');
+    }
+    $database->exec('CREATE TABLE IF NOT EXISTS feedback_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        room_id INTEGER,
+        category TEXT NOT NULL,
+        message TEXT NOT NULL,
+        page TEXT,
+        status TEXT NOT NULL DEFAULT \'open\',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_by INTEGER,
+        resolved_at TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )');
 
     $action = $_GET['action'] ?? '';
     if (in_array($action, ['google-start', 'google-callback'], true)) {
@@ -633,7 +651,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -935,10 +953,12 @@ try {
 
         if ($action === 'room-upload-file') {
             requireActiveRoom($room);
-            $name = trim(basename(str_replace('\\', '/', (string) ($request['name'] ?? ''))));
-            $name = mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', '', $name), 0, 120);
+            $name = (string) ($request['name'] ?? '');
+            if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9 _().-]{0,95}\.[A-Za-z0-9]{1,5}$/D', $name) || str_contains($name, '..')) {
+                respond(422, ['error' => 'File names can only use letters, numbers, spaces, dashes, underscores, dots, and parentheses, and must end with an extension.']);
+            }
             $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-            if ($name === '' || !array_key_exists($extension, ROOM_FILE_TYPES)) {
+            if (!array_key_exists($extension, ROOM_FILE_TYPES)) {
                 respond(422, ['error' => 'That file type is not allowed. Use PDF, images, text, Office documents, or CSV.']);
             }
             $contents = base64_decode((string) ($request['data'] ?? ''), true);
@@ -954,7 +974,7 @@ try {
             $database->beginTransaction();
             $database->prepare('INSERT INTO room_files (room_id, uploader_id, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)')->execute([$roomId, $userId, $name, $storedName, strlen($contents)]);
             $fileId = (int) $database->lastInsertId();
-            $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body) VALUES (?, ?, ?, ?)')->execute([$roomId, $userId, 'file', 'shared a file: ' . $name]);
+            $database->prepare('INSERT INTO room_messages (room_id, sender_id, kind, body, file_id) VALUES (?, ?, ?, ?, ?)')->execute([$roomId, $userId, 'file', 'shared a file: ' . $name, $fileId]);
             $database->commit();
             respond(201, ['id' => $fileId]);
         }
@@ -1066,6 +1086,59 @@ try {
         respond(201, ['availability' => ['id' => (int) $database->lastInsertId()]]);
     }
 
+    if ($action === 'submit-feedback') {
+        $userId = requireUserId();
+        $category = $request['category'] ?? '';
+        if (!in_array($category, ['bug', 'video', 'chat', 'files', 'suggestion', 'other'], true)) {
+            respond(422, ['error' => 'Choose a feedback category.']);
+        }
+        $message = validateText($request['message'] ?? '', 1000, 'Feedback');
+        $page = (string) ($request['page'] ?? '');
+        $page = preg_match('/^[A-Za-z0-9_.\/-]{1,80}$/', $page) ? $page : null;
+        $recent = $database->prepare("SELECT COUNT(*) FROM feedback_reports WHERE user_id = ? AND created_at >= datetime('now', '-1 hour')");
+        $recent->execute([$userId]);
+        if ((int) $recent->fetchColumn() >= 5) respond(429, ['error' => 'You have sent several reports recently. Please try again later.']);
+        $roomId = filter_var($request['roomId'] ?? null, FILTER_VALIDATE_INT) ?: null;
+        if ($roomId !== null) {
+            $member = $database->prepare('SELECT id FROM study_rooms WHERE id = ? AND (student_id = ? OR tutor_id = ?)');
+            $member->execute([$roomId, $userId, $userId]);
+            if ($member->fetchColumn() === false) $roomId = null;
+        }
+        $database->prepare('INSERT INTO feedback_reports (user_id, room_id, category, message, page) VALUES (?, ?, ?, ?, ?)')->execute([$userId, $roomId, $category, $message, $page]);
+        respond(201, ['message' => 'Thanks, your report was sent to the TutorRush team.']);
+    }
+
+    if ($action === 'admin-feedback') {
+        requireAdmin();
+        $rows = $database->query('SELECT f.id, f.category, f.message, f.page, f.status, f.created_at, f.resolved_at, f.room_id, u.name AS user_name, u.email AS user_email, u.role AS user_role, m.subject AS room_subject FROM feedback_reports f JOIN users u ON u.id = f.user_id LEFT JOIN study_rooms r ON r.id = f.room_id LEFT JOIN match_requests m ON m.id = r.match_request_id ORDER BY f.id DESC LIMIT 300')->fetchAll(PDO::FETCH_ASSOC);
+        $reports = array_map(static fn(array $row): array => [
+            'id' => (int) $row['id'],
+            'category' => $row['category'],
+            'message' => $row['message'],
+            'page' => $row['page'],
+            'status' => $row['status'],
+            'createdAt' => isoTime($row['created_at']),
+            'resolvedAt' => isoTime($row['resolved_at']),
+            'roomId' => $row['room_id'] === null ? null : (int) $row['room_id'],
+            'roomSubject' => $row['room_subject'],
+            'userName' => $row['user_name'],
+            'userEmail' => $row['user_email'],
+            'userRole' => $row['user_role'],
+        ], $rows);
+        respond(200, ['reports' => $reports]);
+    }
+
+    if ($action === 'admin-set-feedback-status') {
+        requireAdmin();
+        $reportId = filter_var($request['reportId'] ?? null, FILTER_VALIDATE_INT);
+        $newStatus = $request['status'] ?? '';
+        if (!$reportId || !in_array($newStatus, ['open', 'resolved'], true)) respond(422, ['error' => 'A valid report and status are required.']);
+        $statement = $database->prepare('UPDATE feedback_reports SET status = ?, resolved_by = ?, resolved_at = ' . ($newStatus === 'resolved' ? 'CURRENT_TIMESTAMP' : 'NULL') . ' WHERE id = ?');
+        $statement->execute([$newStatus, $newStatus === 'resolved' ? (int) $_SESSION['tutorrush_user_id'] : null, $reportId]);
+        if ($statement->rowCount() === 0) respond(404, ['error' => 'Report not found.']);
+        respond(200, ['status' => $newStatus]);
+    }
+
     if ($action === 'admin-dashboard') {
         requireAdmin();
         $summary = [
@@ -1120,7 +1193,7 @@ try {
             }
             $database->prepare('DELETE FROM room_call_signals WHERE sender_id = ? OR room_id IN (SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_requests WHERE student_id = ? OR tutor_id = ?')->execute([$userId, $userId]);
-            foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id'] as $table => $column) {
+            foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id', 'feedback_reports' => 'user_id'] as $table => $column) {
                 $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");
                 $statement->execute([$userId]);
             }

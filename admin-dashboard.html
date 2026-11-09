@@ -24,6 +24,10 @@
     td select { min-width: 8rem; padding: .45rem 2rem .45rem .6rem; }
     .delete-button { padding: .45rem .8rem; background: #ffb4ab; }
     .empty { padding: 1.5rem; text-align: center; }
+    .report { padding: 1rem 1.2rem; margin-top: .8rem; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; box-shadow: .2rem .2rem 0 var(--ink); }
+    .report.resolved { opacity: .7; }
+    .report .meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; font-size: .78rem; font-weight: 700; }
+    .report p { margin: .6rem 0; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -43,6 +47,7 @@
       <button class="stat" type="button" data-filter="admin"><span>Admins</span><strong id="countAdmin">-</strong></button>
       <div class="stat static"><span>Bookings</span><strong id="bookingCount">-</strong></div>
       <div class="stat static"><span>Messages</span><strong id="messageCount">-</strong></div>
+      <a class="stat static" href="#feedback" style="text-decoration:none;color:inherit"><span>Open feedback</span><strong id="feedbackOpenCount">-</strong></a>
     </section>
     <p id="bothNote" style="font-size:.85rem"></p>
 
@@ -64,6 +69,19 @@
         <tbody id="usersBody"></tbody>
       </table>
     </div>
+
+    <section id="feedback" style="margin-top:2.5rem">
+      <div class="row">
+        <h2 style="margin:0">Feedback &amp; issue reports</h2>
+        <select id="feedbackFilter" aria-label="Filter feedback">
+          <option value="open">Open</option>
+          <option value="resolved">Resolved</option>
+          <option value="all">All reports</option>
+        </select>
+      </div>
+      <p class="status" id="feedbackStatus" role="status"></p>
+      <div id="feedbackList"></div>
+    </section>
   </main>
 
   <script src="app.js"></script>
@@ -155,6 +173,49 @@
       renderUsers();
     }
 
+    const $ = (id) => document.getElementById(id);
+    const CATEGORY_LABELS = { bug: 'Something broken', video: 'Video call', chat: 'Chat', files: 'Files', suggestion: 'Suggestion', other: 'Other' };
+    let reports = [];
+
+    function renderFeedback() {
+      const filter = $('feedbackFilter').value;
+      const list = $('feedbackList');
+      $('feedbackOpenCount').textContent = reports.filter((report) => report.status === 'open').length;
+      const visible = reports.filter((report) => filter === 'all' || report.status === filter);
+      list.replaceChildren();
+      setStatus($('feedbackStatus'), `Showing ${visible.length} of ${reports.length} reports.`);
+      visible.forEach((report) => {
+        const card = element('article', `report ${report.status}`);
+        const meta = element('div', 'meta');
+        meta.append(
+          element('span', `badge ${report.status === 'open' ? '' : 'ended'}`, CATEGORY_LABELS[report.category] || report.category),
+          element('span', '', `${report.userName} (${report.userRole}) \u00b7 ${report.userEmail}`),
+          element('span', '', formatDateTime(report.createdAt)),
+        );
+        if (report.roomId) meta.appendChild(element('span', '', `Room #${report.roomId}${report.roomSubject ? ` \u00b7 ${report.roomSubject}` : ''}`));
+        if (report.page) meta.appendChild(element('span', '', `Page: ${report.page}`));
+        const toggle = element('button', report.status === 'open' ? 'green' : 'plain', report.status === 'open' ? 'mark resolved' : 'reopen');
+        toggle.type = 'button';
+        toggle.addEventListener('click', async () => {
+          try {
+            await api('admin-set-feedback-status', { reportId: report.id, status: report.status === 'open' ? 'resolved' : 'open' });
+            await loadFeedback();
+          } catch (error) {
+            setStatus($('feedbackStatus'), error.message, 'error');
+          }
+        });
+        card.append(meta, element('p', '', report.message), toggle);
+        list.appendChild(card);
+      });
+    }
+
+    async function loadFeedback() {
+      reports = (await api('admin-feedback')).reports;
+      renderFeedback();
+    }
+
+    $('feedbackFilter').addEventListener('change', renderFeedback);
+
     document.querySelectorAll('.stat[data-filter]').forEach((card) => card.addEventListener('click', () => {
       roleFilter.value = card.dataset.filter;
       renderUsers();
@@ -173,6 +234,7 @@
         currentUserId = user.id;
         setupHeader(user, 'admin');
         await loadUsers();
+        await loadFeedback();
       } catch (error) {
         setStatus(status, error.message, 'error');
       }

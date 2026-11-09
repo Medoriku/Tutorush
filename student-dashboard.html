@@ -148,6 +148,7 @@
       const user = await loadSession();
       if (!user) return;
       setupHeader(user, 'student');
+      initFeedback();
       await refreshRooms();
     })();
   </script>

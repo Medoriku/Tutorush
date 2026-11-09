@@ -77,3 +77,115 @@ function renderRoomList(container, rooms) {
     container.appendChild(link);
   });
 }
+
+let audioContext = null;
+
+function soundsEnabled() {
+  return localStorage.getItem('tutorrush-sounds') !== 'off';
+}
+
+function setSoundsEnabled(on) {
+  localStorage.setItem('tutorrush-sounds', on ? 'on' : 'off');
+}
+
+function playTone(kind) {
+  if (!soundsEnabled()) return;
+  try {
+    audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') audioContext.resume();
+    const notes = {
+      message: [[880, 0, 0.09]],
+      join: [[523, 0, 0.12], [784, 0.13, 0.18]],
+      leave: [[784, 0, 0.12], [523, 0.13, 0.18]],
+    }[kind] || [];
+    const start = audioContext.currentTime;
+    notes.forEach(([frequency, offset, length]) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, start + offset);
+      gain.gain.exponentialRampToValueAtTime(0.15, start + offset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + length);
+      oscillator.connect(gain).connect(audioContext.destination);
+      oscillator.start(start + offset);
+      oscillator.stop(start + offset + length + 0.02);
+    });
+  } catch (error) {
+    // Sounds are optional; browsers may block audio before the first interaction.
+  }
+}
+
+function toast(message) {
+  let box = document.getElementById('toasts');
+  if (!box) {
+    box = element('div', 'toasts');
+    box.id = 'toasts';
+    box.setAttribute('aria-live', 'polite');
+    document.body.appendChild(box);
+  }
+  const item = element('div', 'toast', message);
+  box.appendChild(item);
+  setTimeout(() => item.remove(), 4500);
+}
+
+function initFeedback(roomId = null) {
+  const actions = document.querySelector('header.top .actions');
+  if (!actions) return;
+  const open = element('button', 'plain', 'report an issue');
+  open.type = 'button';
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'feedback-dialog';
+  const form = document.createElement('form');
+  form.method = 'dialog';
+  const categoryField = element('div', 'field');
+  const category = element('select');
+  [['bug', 'Something is broken'], ['video', 'Video call problem'], ['chat', 'Chat problem'], ['files', 'File problem'], ['suggestion', 'Suggestion'], ['other', 'Other']]
+    .forEach(([value, label]) => category.add(new Option(label, value)));
+  category.id = 'feedbackCategory';
+  const categoryLabel = element('label', '', 'What is this about?');
+  categoryLabel.htmlFor = category.id;
+  categoryField.append(categoryLabel, category);
+
+  const messageField = element('div', 'field');
+  const message = element('textarea');
+  message.id = 'feedbackMessage';
+  message.maxLength = 1000;
+  message.placeholder = 'Tell us what happened or what we could improve...';
+  const messageLabel = element('label', '', 'Details');
+  messageLabel.htmlFor = message.id;
+  messageField.append(messageLabel, message);
+
+  const result = element('p', 'status');
+  const buttons = element('div', 'dialog-actions');
+  const cancel = element('button', 'plain', 'cancel');
+  cancel.type = 'button';
+  const send = element('button', 'green', 'send report');
+  send.type = 'submit';
+  buttons.append(cancel, send);
+  form.append(element('h2', '', 'Report an issue'), element('p', '', 'Your report goes to the TutorRush admins.'), categoryField, messageField, result, buttons);
+  dialog.appendChild(form);
+
+  open.addEventListener('click', () => {
+    message.value = '';
+    setStatus(result, '');
+    dialog.showModal();
+  });
+  cancel.addEventListener('click', () => dialog.close());
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!message.value.trim()) return setStatus(result, 'Please describe the issue.', 'error');
+    send.disabled = true;
+    try {
+      const data = await api('submit-feedback', { category: category.value, message: message.value.trim(), page: location.pathname.split('/').pop(), roomId });
+      setStatus(result, data.message, 'success');
+      setTimeout(() => dialog.close(), 1400);
+    } catch (error) {
+      setStatus(result, error.message, 'error');
+    } finally {
+      send.disabled = false;
+    }
+  });
+  actions.prepend(open);
+  document.body.appendChild(dialog);
+}
