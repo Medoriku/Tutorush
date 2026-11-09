@@ -34,6 +34,18 @@ header('X-Content-Type-Options: nosniff');
 
 const ADMIN_EMAIL = 'diyoradaminovaz.m@gmail.com';
 const TUTOR_HEARTBEAT_SECONDS = 150;
+const TUTOR_SUBJECTS = ['Calculus 1', 'Calculus 3', 'Physics', 'English', 'Computer Science', 'Biology', 'General tutoring'];
+const MAX_APPLICATION_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_SUPPORTING_DOCUMENTS = 5;
+const SAFE_FILE_NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9 _().-]{0,95}\.[A-Za-z0-9]{1,5}$/D';
+const APPLICATION_FILE_TYPES = [
+    'pdf' => 'application/pdf', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+    'doc' => 'application/msword', 'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+const APPLICATION_FILE_SIGNATURES = [
+    'pdf' => '%PDF', 'png' => "\x89PNG", 'jpg' => "\xFF\xD8\xFF", 'jpeg' => "\xFF\xD8\xFF",
+    'doc' => "\xD0\xCF\x11\xE0", 'docx' => 'PK',
+];
 
 function debugLog(string $event, array $context = []): void {
     $entry = [
@@ -390,6 +402,26 @@ function studentRequestPayload(PDO $database, int $requestId, int $studentId): ?
     ];
 }
 
+function applicationDirectory(): string {
+    $directory = __DIR__ . '/storage/applications';
+    if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
+        throw new RuntimeException('Could not create the application directory.');
+    }
+    return $directory;
+}
+
+function applicationDocuments(PDO $database, int $userId): array {
+    $statement = $database->prepare('SELECT id, kind, original_name, size, created_at FROM application_documents WHERE user_id = ? ORDER BY kind DESC, id ASC');
+    $statement->execute([$userId]);
+    return array_map(static fn(array $row): array => [
+        'id' => (int) $row['id'],
+        'kind' => $row['kind'],
+        'name' => $row['original_name'],
+        'size' => (int) $row['size'],
+        'createdAt' => isoTime($row['created_at']),
+    ], $statement->fetchAll(PDO::FETCH_ASSOC));
+}
+
 function requireAdmin(): void {
     if (($_SESSION['tutorrush_role'] ?? '') !== 'admin') {
         respond(403, ['error' => 'Administrator access is required.']);
@@ -541,6 +573,11 @@ try {
     }
     if (!in_array('last_seen_at', $userColumns, true)) {
         $database->exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
+    }
+    foreach (['school', 'field_of_study', 'application_submitted_at'] as $applicationColumn) {
+        if (!in_array($applicationColumn, $userColumns, true)) {
+            $database->exec("ALTER TABLE users ADD COLUMN $applicationColumn TEXT");
+        }
     }
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
@@ -773,6 +810,16 @@ try {
         resolved_at TEXT,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )');
+    $database->exec('CREATE TABLE IF NOT EXISTS application_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        stored_name TEXT NOT NULL UNIQUE,
+        size INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )');
 
     $action = $_GET['action'] ?? '';
     if (in_array($action, ['google-start', 'google-callback'], true)) {
@@ -785,7 +832,7 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'logout', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-match-request', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-set-approval', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'logout', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-match-request', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'my-application', 'submit-application', 'upload-application-document', 'delete-application-document', 'admin-user-details', 'admin-application-document', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-set-approval', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
@@ -877,9 +924,14 @@ try {
             $requestedRole = 'student';
         }
         $role = $email === ADMIN_EMAIL ? 'admin' : $requestedRole;
+        $school = validateText($request['school'] ?? '', 120, 'School or university');
+        $fieldOfStudy = trim((string) ($request['fieldOfStudy'] ?? ''));
+        if (mb_strlen($fieldOfStudy) > 120 || ($role !== 'student' && $role !== 'admin' && $fieldOfStudy === '')) {
+            respond(422, ['error' => 'Tell us what you study (up to 120 characters).']);
+        }
         try {
-            $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at, approval_status) VALUES (?, ?, ?, ?, NULL, ?)');
-            $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $role === 'admin' ? 'approved' : 'pending']);
+            $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at, approval_status, school, field_of_study) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)');
+            $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $role === 'admin' ? 'approved' : 'pending', $school, $fieldOfStudy ?: null]);
         } catch (PDOException $exception) {
             if ((int) $exception->getCode() === 23000) respond(409, ['error' => 'An account with that email already exists.']);
             throw $exception;
@@ -1331,7 +1383,11 @@ try {
             'messages' => (int) $database->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
         ];
         $recentBookings = $database->query('SELECT b.tutor_name, b.mode, b.status, b.scheduled_for, u.name AS student_name FROM bookings b JOIN users u ON u.id = b.student_id ORDER BY b.id DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
-        $users = $database->query('SELECT id, name, email, role, approval_status, email_verified_at, created_at FROM users ORDER BY created_at DESC, id DESC')->fetchAll(PDO::FETCH_ASSOC);
+        $users = array_map(static fn(array $row): array => [
+            ...$row,
+            'subjects' => json_decode((string) $row['tutor_subjects'], true) ?: [],
+            'transcript' => (int) $row['transcript_count'] > 0,
+        ], $database->query("SELECT u.id, u.name, u.email, u.role, u.approval_status, u.email_verified_at, u.created_at, u.school, u.field_of_study, u.tutor_subjects, u.application_submitted_at, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = u.id) AS document_count, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = u.id AND d.kind = 'transcript') AS transcript_count FROM users u ORDER BY u.created_at DESC, u.id DESC")->fetchAll(PDO::FETCH_ASSOC));
         respond(200, ['summary' => $summary, 'recentBookings' => $recentBookings, 'users' => $users]);
     }
 
@@ -1351,6 +1407,140 @@ try {
             respond(404, ['error' => 'User not found or role is unchanged.']);
         }
         respond(200, ['message' => 'User role updated.', 'role' => $role]);
+    }
+
+    if ($action === 'my-application') {
+        $userId = requireUserId();
+        $statement = $database->prepare('SELECT name, email, role, approval_status, school, field_of_study, tutor_subjects, application_submitted_at FROM users WHERE id = ?');
+        $statement->execute([$userId]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$row) respond(401, ['error' => 'Please log in first.']);
+        respond(200, ['application' => [
+            'name' => $row['name'],
+            'email' => $row['email'],
+            'role' => $row['role'],
+            'approvalStatus' => $row['approval_status'],
+            'school' => $row['school'] ?? '',
+            'fieldOfStudy' => $row['field_of_study'] ?? '',
+            'subjects' => json_decode((string) $row['tutor_subjects'], true) ?: [],
+            'submittedAt' => isoTime($row['application_submitted_at']),
+            'documents' => applicationDocuments($database, $userId),
+            'availableSubjects' => TUTOR_SUBJECTS,
+        ]]);
+    }
+
+    if ($action === 'submit-application') {
+        $userId = requireUserId();
+        $roleStatement = $database->prepare('SELECT role FROM users WHERE id = ?');
+        $roleStatement->execute([$userId]);
+        $role = $roleStatement->fetchColumn();
+        $isTutor = in_array($role, ['tutor', 'both'], true);
+        $school = validateText($request['school'] ?? '', 120, 'School or university');
+        $fieldOfStudy = trim((string) ($request['fieldOfStudy'] ?? ''));
+        if (mb_strlen($fieldOfStudy) > 120 || ($isTutor && $fieldOfStudy === '')) {
+            respond(422, ['error' => 'Tell us what you study (up to 120 characters).']);
+        }
+        if ($isTutor) {
+            $subjects = array_values(array_intersect(TUTOR_SUBJECTS, is_array($request['subjects'] ?? null) ? $request['subjects'] : []));
+            if (!$subjects) respond(422, ['error' => 'Choose at least one topic you can tutor.']);
+            $transcript = $database->prepare("SELECT COUNT(*) FROM application_documents WHERE user_id = ? AND kind = 'transcript'");
+            $transcript->execute([$userId]);
+            if ((int) $transcript->fetchColumn() === 0) respond(422, ['error' => 'Upload your transcript as a PDF before submitting.']);
+            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, tutor_subjects = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy, json_encode($subjects, JSON_UNESCAPED_UNICODE), $userId]);
+        } else {
+            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy ?: null, $userId]);
+        }
+        respond(200, ['message' => 'Application saved. We will review it and email you when you are approved.']);
+    }
+
+    if ($action === 'upload-application-document') {
+        $userId = requireUserId();
+        $kind = $request['kind'] ?? '';
+        if (!in_array($kind, ['transcript', 'supporting'], true)) respond(422, ['error' => 'Choose a document type.']);
+        $name = (string) ($request['name'] ?? '');
+        if (!preg_match(SAFE_FILE_NAME_PATTERN, $name) || str_contains($name, '..')) {
+            respond(422, ['error' => 'File names can only use letters, numbers, spaces, dashes, underscores, dots, and parentheses, and must end with an extension.']);
+        }
+        $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if ($kind === 'transcript' ? $extension !== 'pdf' : !array_key_exists($extension, APPLICATION_FILE_TYPES)) {
+            respond(422, ['error' => $kind === 'transcript' ? 'Your transcript must be a PDF.' : 'Supporting documents can be PDF, PNG, JPG, DOC, or DOCX.']);
+        }
+        $contents = base64_decode((string) ($request['data'] ?? ''), true);
+        if ($contents === false || $contents === '') respond(422, ['error' => 'The file could not be read.']);
+        if (strlen($contents) > MAX_APPLICATION_FILE_BYTES) respond(413, ['error' => 'Files can be up to 4 MB.']);
+        if (!str_starts_with($contents, APPLICATION_FILE_SIGNATURES[$extension])) {
+            respond(422, ['error' => "That file does not look like a real .$extension file."]);
+        }
+        if ($kind === 'supporting') {
+            $count = $database->prepare("SELECT COUNT(*) FROM application_documents WHERE user_id = ? AND kind = 'supporting'");
+            $count->execute([$userId]);
+            if ((int) $count->fetchColumn() >= MAX_SUPPORTING_DOCUMENTS) respond(422, ['error' => 'You can attach up to ' . MAX_SUPPORTING_DOCUMENTS . ' supporting documents.']);
+        }
+        $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+        if (file_put_contents(applicationDirectory() . '/' . $storedName, $contents, LOCK_EX) === false) {
+            throw new RuntimeException('Could not store the uploaded document.');
+        }
+        $replaced = [];
+        if ($kind === 'transcript') {
+            $old = $database->prepare("SELECT stored_name FROM application_documents WHERE user_id = ? AND kind = 'transcript'");
+            $old->execute([$userId]);
+            $replaced = $old->fetchAll(PDO::FETCH_COLUMN);
+            $database->prepare("DELETE FROM application_documents WHERE user_id = ? AND kind = 'transcript'")->execute([$userId]);
+        }
+        $database->prepare('INSERT INTO application_documents (user_id, kind, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)')->execute([$userId, $kind, $name, $storedName, strlen($contents)]);
+        foreach ($replaced as $oldName) {
+            @unlink(applicationDirectory() . '/' . basename((string) $oldName));
+        }
+        respond(201, ['documents' => applicationDocuments($database, $userId)]);
+    }
+
+    if ($action === 'delete-application-document') {
+        $userId = requireUserId();
+        $documentId = filter_var($request['documentId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$documentId) respond(422, ['error' => 'A valid document is required.']);
+        $statement = $database->prepare('SELECT stored_name FROM application_documents WHERE id = ? AND user_id = ?');
+        $statement->execute([$documentId, $userId]);
+        $storedName = $statement->fetchColumn();
+        if ($storedName === false) respond(404, ['error' => 'Document not found.']);
+        $database->prepare('DELETE FROM application_documents WHERE id = ?')->execute([$documentId]);
+        @unlink(applicationDirectory() . '/' . basename((string) $storedName));
+        respond(200, ['documents' => applicationDocuments($database, $userId)]);
+    }
+
+    if ($action === 'admin-user-details') {
+        requireAdmin();
+        $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$userId) respond(422, ['error' => 'A valid user is required.']);
+        $statement = $database->prepare('SELECT id, name, email, role, approval_status, school, field_of_study, tutor_subjects, application_submitted_at, created_at FROM users WHERE id = ?');
+        $statement->execute([$userId]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$row) respond(404, ['error' => 'User not found.']);
+        respond(200, ['user' => [
+            'id' => (int) $row['id'],
+            'name' => $row['name'],
+            'email' => $row['email'],
+            'role' => $row['role'],
+            'approvalStatus' => $row['approval_status'],
+            'school' => $row['school'] ?? '',
+            'fieldOfStudy' => $row['field_of_study'] ?? '',
+            'subjects' => json_decode((string) $row['tutor_subjects'], true) ?: [],
+            'submittedAt' => isoTime($row['application_submitted_at']),
+            'createdAt' => isoTime($row['created_at']),
+            'documents' => applicationDocuments($database, $userId),
+        ]]);
+    }
+
+    if ($action === 'admin-application-document') {
+        requireAdmin();
+        $documentId = filter_var($request['documentId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$documentId) respond(422, ['error' => 'A valid document is required.']);
+        $statement = $database->prepare('SELECT original_name, stored_name FROM application_documents WHERE id = ?');
+        $statement->execute([$documentId]);
+        $document = $statement->fetch(PDO::FETCH_ASSOC);
+        $path = $document ? applicationDirectory() . '/' . basename($document['stored_name']) : '';
+        if (!$document || !is_file($path)) respond(404, ['error' => 'Document not found.']);
+        $extension = strtolower(pathinfo($document['stored_name'], PATHINFO_EXTENSION));
+        respond(200, ['name' => $document['original_name'], 'mime' => APPLICATION_FILE_TYPES[$extension] ?? 'application/octet-stream', 'data' => base64_encode((string) file_get_contents($path))]);
     }
 
     if ($action === 'admin-set-approval') {
@@ -1411,6 +1601,10 @@ try {
             $database->prepare('DELETE FROM room_call_signals WHERE sender_id = ? OR room_id IN (SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_declines WHERE tutor_id = ? OR request_id IN (SELECT id FROM match_requests WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_requests WHERE student_id = ? OR tutor_id = ?')->execute([$userId, $userId]);
+            $applicationFiles = $database->prepare('SELECT stored_name FROM application_documents WHERE user_id = ?');
+            $applicationFiles->execute([$userId]);
+            $applicationStored = $applicationFiles->fetchAll(PDO::FETCH_COLUMN);
+            $database->prepare('DELETE FROM application_documents WHERE user_id = ?')->execute([$userId]);
             foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id', 'feedback_reports' => 'user_id'] as $table => $column) {
                 $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");
                 $statement->execute([$userId]);
@@ -1428,6 +1622,9 @@ try {
         }
         foreach ($storedFiles as $storedName) {
             @unlink(uploadDirectory() . '/' . basename((string) $storedName));
+        }
+        foreach ($applicationStored as $storedName) {
+            @unlink(applicationDirectory() . '/' . basename((string) $storedName));
         }
         respond(200, ['message' => 'User deleted.']);
     }

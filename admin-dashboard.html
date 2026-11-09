@@ -24,6 +24,11 @@
     td select { min-width: 8rem; padding: .45rem 2rem .45rem .6rem; }
     .delete-button { padding: .45rem .8rem; background: #ffb4ab; }
     .empty { padding: 1.5rem; text-align: center; }
+    .details-row td { white-space: normal; background: #faf6ff; }
+    .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .9rem; padding: .4rem 0; }
+    .details-grid small, td small { display: block; opacity: .7; font-weight: 700; }
+    .doc-line { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-top: .4rem; }
+    button.small { padding: .3rem .6rem; margin-top: .3rem; font-size: .75rem; }
     .report { padding: 1rem 1.2rem; margin-top: .8rem; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; box-shadow: .2rem .2rem 0 var(--ink); }
     .report.resolved { opacity: .7; }
     .report .meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; font-size: .78rem; font-weight: 700; }
@@ -69,7 +74,7 @@
 
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Joined</th><th>Change role</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>School &amp; study</th><th>Topic specialties</th><th>Access</th><th>Joined</th><th>Change role</th><th></th></tr></thead>
         <tbody id="usersBody"></tbody>
       </table>
     </div>
@@ -118,17 +123,69 @@
       document.getElementById('bothNote').textContent = both ? `${both} account${both === 1 ? '' : 's'} with both roles count as a student and a tutor.` : '';
     }
 
+    async function downloadDocument(doc) {
+      try {
+        const result = await api('admin-application-document', { documentId: doc.id });
+        const bytes = Uint8Array.from(atob(result.data), (char) => char.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: result.mime }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = result.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) {
+        toast(error.message);
+      }
+    }
+
+    async function fillDetails(cell, user) {
+      cell.replaceChildren(element('p', '', 'Loading...'));
+      try {
+        const { user: detail } = await api('admin-user-details', { userId: user.id });
+        const grid = element('div', 'details-grid');
+        const add = (label, value) => {
+          const item = element('div');
+          item.append(element('small', '', label), element('div', '', value || '\u2014'));
+          grid.appendChild(item);
+        };
+        add('Signed up as', detail.role);
+        add('Where they study', detail.school);
+        add('What they study', detail.fieldOfStudy);
+        add('Topic specialties', detail.subjects.join(', '));
+        add('Application', detail.submittedAt ? `Saved ${formatDateTime(detail.submittedAt)}` : 'Not saved yet');
+        add('Joined', formatDateTime(detail.createdAt));
+        const docs = element('div');
+        docs.appendChild(element('small', '', 'Documents'));
+        if (!detail.documents.length) docs.appendChild(element('div', '', 'None uploaded'));
+        detail.documents.forEach((doc) => {
+          const line = element('div', 'doc-line');
+          line.appendChild(element('span', '', `${doc.kind === 'transcript' ? 'Transcript' : 'Supporting'}: ${doc.name}`));
+          const download = element('button', 'green small', 'download');
+          download.type = 'button';
+          download.addEventListener('click', () => downloadDocument(doc));
+          line.appendChild(download);
+          docs.appendChild(line);
+        });
+        grid.appendChild(docs);
+        cell.replaceChildren(grid);
+      } catch (error) {
+        cell.replaceChildren(element('p', 'status error', error.message));
+      }
+    }
+
     function renderUsers() {
       const filter = roleFilter.value;
       const term = search.value.trim().toLowerCase();
       document.querySelectorAll('.stat[data-filter]').forEach((card) => card.classList.toggle('current', card.dataset.filter === filter));
-      const visible = users.filter((user) => matchesRole(user, filter) && (!term || user.name.toLowerCase().includes(term) || user.email.toLowerCase().includes(term)));
+      const visible = users.filter((user) => matchesRole(user, filter) && (!term || [user.name, user.email, user.school, user.field_of_study, ...(user.subjects || [])].some((value) => (value || '').toLowerCase().includes(term))));
       const body = document.getElementById('usersBody');
       body.replaceChildren();
       if (!visible.length) {
         const row = element('tr');
         const cell = element('td', 'empty', 'No accounts match your search.');
-        cell.colSpan = 7;
+        cell.colSpan = 9;
         row.appendChild(cell);
         body.appendChild(row);
       }
@@ -144,6 +201,7 @@
           approvalButton.type = 'button';
           approvalButton.style.marginLeft = '.5rem';
           approvalButton.addEventListener('click', async () => {
+            if (pending && user.role !== 'student' && !user.transcript && !confirm(`${user.name} has not uploaded a transcript. Approve anyway?`)) return;
             approvalButton.disabled = true;
             try {
               const result = await api('admin-set-approval', { userId: user.id, approved: pending });
@@ -157,7 +215,28 @@
           accessCell.appendChild(approvalButton);
           if (!user.email_verified_at) accessCell.appendChild(element('small', '', ' email unconfirmed'));
         }
-        row.append(element('td', '', user.name), element('td', '', user.email), element('td', '', user.role), accessCell, element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
+        const nameCell = element('td');
+        nameCell.appendChild(element('div', '', user.name));
+        const detailsRow = element('tr', 'details-row');
+        detailsRow.hidden = true;
+        const detailsCell = element('td');
+        detailsCell.colSpan = 9;
+        detailsRow.appendChild(detailsCell);
+        const detailsButton = element('button', 'plain small', 'details');
+        detailsButton.type = 'button';
+        detailsButton.addEventListener('click', async () => {
+          detailsRow.hidden = !detailsRow.hidden;
+          detailsButton.textContent = detailsRow.hidden ? 'details' : 'hide details';
+          if (!detailsRow.hidden) await fillDetails(detailsCell, user);
+        });
+        nameCell.appendChild(detailsButton);
+        const schoolCell = element('td');
+        schoolCell.appendChild(element('div', '', user.school || '\u2014'));
+        if (user.field_of_study) schoolCell.appendChild(element('small', '', user.field_of_study));
+        const subjectsCell = element('td', '', (user.subjects || []).length ? user.subjects.join(', ') : '\u2014');
+        subjectsCell.style.whiteSpace = 'normal';
+        subjectsCell.style.minWidth = '10rem';
+        row.append(nameCell, element('td', '', user.email), element('td', '', user.role), schoolCell, subjectsCell, accessCell, element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
 
         const roleCell = element('td');
         const roleSelect = element('select');
@@ -191,7 +270,7 @@
         });
         deleteCell.appendChild(deleteButton);
         row.append(roleCell, deleteCell);
-        body.appendChild(row);
+        body.append(row, detailsRow);
       });
       setStatus(status, `Showing ${visible.length} of ${users.length} accounts.`);
     }

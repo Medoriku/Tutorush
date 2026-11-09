@@ -9,3 +9,4 @@ storage/*-debug.log
 .DS_Store
 storage/uploads/
 storage/sessions/
+storage/applications/

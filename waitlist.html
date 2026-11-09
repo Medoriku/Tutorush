@@ -3,8 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>You're on the waitlist | TutorRush</title>
+  <title>Your application | TutorRush</title>
   <link rel="stylesheet" href="app.css">
+  <style>
+    .doc-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .6rem .9rem; margin-top: .5rem; border: 1px solid var(--ink); border-radius: 1rem; background: #fff; }
+    .doc-row small { display: block; opacity: .7; }
+    .upload-row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; }
+    .checklist { margin: .8rem 0 0; padding: 0; list-style: none; display: grid; gap: .3rem; font-weight: 700; font-size: .9rem; }
+    .checklist li::before { content: "\25CB"; margin-right: .5rem; }
+    .checklist li.done::before { content: "\2713"; color: #2f7a28; }
+    h3 { margin: 1.4rem 0 .2rem; }
+  </style>
 </head>
 <body>
   <header class="top">
@@ -14,43 +23,227 @@
   <main class="page">
     <p class="eyebrow">Almost there</p>
     <h1>You’re on the<br><em>waitlist.</em></h1>
-    <p class="lead">Thanks for joining TutorRush! We’re building our first community before we go live. We’ll email you as soon as your account is approved.</p>
+    <p class="lead">Thanks for joining TutorRush! We approve accounts by hand while we gather our first community. Finish your application below and we’ll email you as soon as you’re in.</p>
 
     <section class="panel">
-      <dl style="display:grid;gap:.8rem;margin:0">
-        <div><dt class="eyebrow">Name</dt><dd id="infoName" style="margin:.2rem 0 0;font-weight:700"></dd></div>
-        <div><dt class="eyebrow">Email</dt><dd id="infoEmail" style="margin:.2rem 0 0;font-weight:700"></dd></div>
-        <div><dt class="eyebrow">Signed up as</dt><dd id="infoRole" style="margin:.2rem 0 0;font-weight:700"></dd></div>
-        <div><dt class="eyebrow">Status</dt><dd style="margin:.2rem 0 0"><span class="badge">WAITING FOR APPROVAL</span></dd></div>
-      </dl>
-      <p>You don’t need to do anything else. If you’ve been approved, this page takes you to your dashboard.</p>
-      <button id="check" class="green" type="button" style="margin-top:1rem">check my status</button>
+      <div class="row">
+        <div>
+          <strong id="infoName"></strong>
+          <p id="infoLine"></p>
+        </div>
+        <span class="badge" id="appBadge">INCOMPLETE</span>
+      </div>
+      <ul class="checklist" id="checklist"></ul>
+    </section>
+
+    <section class="panel">
+      <h2 style="margin:0">Your application</h2>
+      <div class="form-grid">
+        <div class="field full"><label for="school">Where do you study?</label>
+          <input id="school" type="text" maxlength="120" placeholder="School or university" required></div>
+        <div class="field full"><label for="fieldOfStudy" id="fieldLabel">What do you study?</label>
+          <input id="fieldOfStudy" type="text" maxlength="120" placeholder="Major or field of study"></div>
+      </div>
+
+      <div id="tutorOnly" hidden>
+        <h3>Topics you can tutor</h3>
+        <p>Choose every topic you’re confident teaching. Admins see these during review.</p>
+        <div class="chips" id="chips"></div>
+
+        <h3>Transcript (PDF)</h3>
+        <p>Upload your transcript as a PDF so we can verify what you’ve studied.</p>
+        <div id="transcriptList"></div>
+        <div class="upload-row">
+          <input type="file" id="transcriptInput" accept=".pdf,application/pdf">
+          <button class="green" type="button" id="transcriptButton">upload transcript</button>
+        </div>
+      </div>
+
+      <h3>Supporting documents <span style="font-weight:400">(optional)</span></h3>
+      <p>Certificates, awards, tutoring references, anything that helps. PDF, PNG, JPG, DOC, or DOCX, up to 5 files, 4 MB each.</p>
+      <div id="supportList"></div>
+      <div class="upload-row">
+        <input type="file" id="supportInput" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx">
+        <button class="green" type="button" id="supportButton">add document</button>
+      </div>
+      <p class="status" id="fileStatus" role="alert"></p>
+
+      <button id="submit" class="yellow" type="button" style="margin-top:1rem">save my application</button>
       <p class="status" id="status" role="status"></p>
+    </section>
+
+    <section class="panel">
+      <p>If you’ve been approved, this page takes you to your dashboard automatically.</p>
+      <button id="check" class="plain" type="button" style="margin-top:.6rem">check my status</button>
     </section>
   </main>
 
   <script src="app.js"></script>
   <script>
-    const status = document.getElementById('status');
-    const ROLE_LABELS = { student: 'Student', tutor: 'Tutor', both: 'Student + tutor' };
+    const $ = (id) => document.getElementById(id);
+    const status = $('status');
+    const fileStatus = $('fileStatus');
+    const MAX_BYTES = 4 * 1024 * 1024;
+    const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9 _().-]{0,95}\.[A-Za-z0-9]{1,5}$/;
+    let application = null;
+    let subjects = new Set();
 
-    async function check(manual) {
-      const user = await loadSession(true);
-      if (!user) return;
-      document.getElementById('infoName').textContent = user.name;
-      document.getElementById('infoEmail').textContent = user.email;
-      document.getElementById('infoRole').textContent = ROLE_LABELS[user.role] || user.role;
-      if (user.approvalStatus !== 'pending') {
-        location.replace(user.role === 'tutor' ? routes.tutor : user.role === 'admin' ? routes.admin : routes.student);
-      } else if (manual) {
-        setStatus(status, 'Still waiting for approval. We’ll email you as soon as you’re in.');
+    const isTutor = () => application && application.role !== 'student';
+
+    function fileNameProblem(name, extensions) {
+      const bad = [...new Set([...name].filter((character) => !/[A-Za-z0-9 _().-]/.test(character)))];
+      if (bad.length) {
+        const parts = bad.map((character) => (/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\ufeff]/.test(character) ? 'a hidden character' : `\u201c${character}\u201d`));
+        return `\u201c${name}\u201d can\u2019t be uploaded because its name has characters some devices can\u2019t read: ${parts.join(', ')}. Rename the file using only letters, numbers, spaces, dashes, underscores, dots, or parentheses, then choose it again.`;
+      }
+      if (name.includes('..') || !SAFE_NAME.test(name)) return 'File names must start with a letter or number, stay under 100 characters, and end with an extension such as .pdf.';
+      if (!extensions.includes(name.split('.').pop().toLowerCase())) return `That file type is not supported. Use: ${extensions.map((ext) => `.${ext}`).join(', ')}.`;
+      return '';
+    }
+
+    function formatSize(bytes) {
+      return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function renderDocuments(list, documents) {
+      list.replaceChildren();
+      documents.forEach((doc) => {
+        const row = element('div', 'doc-row');
+        const info = element('div');
+        info.appendChild(element('strong', '', doc.name));
+        info.appendChild(element('small', '', `${formatSize(doc.size)} \u00b7 ${formatDateTime(doc.createdAt)}`));
+        const remove = element('button', 'plain', 'remove');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => {
+          try {
+            application.documents = (await api('delete-application-document', { documentId: doc.id })).documents;
+            render();
+          } catch (error) {
+            setStatus(fileStatus, error.message, 'error');
+          }
+        });
+        row.append(info, remove);
+        list.appendChild(row);
+      });
+    }
+
+    function render() {
+      $('infoName').textContent = application.name;
+      $('infoLine').textContent = `${application.email} \u00b7 signed up as ${{ student: 'a student', tutor: 'a tutor', both: 'a student and tutor' }[application.role] || application.role}`;
+      $('tutorOnly').hidden = !isTutor();
+      $('fieldLabel').textContent = isTutor() ? 'What do you study?' : 'What do you study? (optional)';
+      renderDocuments($('transcriptList'), application.documents.filter((doc) => doc.kind === 'transcript'));
+      renderDocuments($('supportList'), application.documents.filter((doc) => doc.kind === 'supporting'));
+      $('supportButton').disabled = application.documents.filter((doc) => doc.kind === 'supporting').length >= 5;
+
+      const hasTranscript = application.documents.some((doc) => doc.kind === 'transcript');
+      const items = [
+        ['Tell us where you study', Boolean($('school').value.trim())],
+        ...(isTutor() ? [
+          ['Tell us what you study', Boolean($('fieldOfStudy').value.trim())],
+          ['Choose the topics you can tutor', subjects.size > 0],
+          ['Upload your transcript (PDF)', hasTranscript],
+        ] : []),
+      ];
+      const checklist = $('checklist');
+      checklist.replaceChildren();
+      items.forEach(([label, done]) => checklist.appendChild(element('li', done ? 'done' : '', label)));
+      const complete = items.every(([, done]) => done) && Boolean(application.submittedAt);
+      $('appBadge').textContent = complete ? 'UNDER REVIEW' : 'INCOMPLETE';
+      $('appBadge').className = `badge ${complete ? 'active' : ''}`;
+
+      const box = $('chips');
+      box.replaceChildren();
+      application.availableSubjects.forEach((subject) => {
+        const chip = element('button', 'chip', subject);
+        chip.type = 'button';
+        chip.setAttribute('aria-pressed', String(subjects.has(subject)));
+        chip.addEventListener('click', () => {
+          subjects.has(subject) ? subjects.delete(subject) : subjects.add(subject);
+          render();
+        });
+        box.appendChild(chip);
+      });
+    }
+
+    async function upload(kind, input, extensions) {
+      const file = input.files[0];
+      setStatus(fileStatus, '');
+      if (!file) return setStatus(fileStatus, 'Choose a file first.', 'error');
+      const problem = fileNameProblem(file.name, extensions);
+      if (problem) {
+        input.value = '';
+        return setStatus(fileStatus, problem, 'error');
+      }
+      if (file.size > MAX_BYTES) return setStatus(fileStatus, 'Files can be up to 4 MB.', 'error');
+      try {
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.onerror = () => reject(new Error('The file could not be read.'));
+          reader.readAsDataURL(file);
+        });
+        application.documents = (await api('upload-application-document', { kind, name: file.name, data })).documents;
+        input.value = '';
+        setStatus(fileStatus, 'Uploaded.', 'success');
+        render();
+      } catch (error) {
+        setStatus(fileStatus, error.message, 'error');
       }
     }
 
-    document.getElementById('check').addEventListener('click', () => check(true));
+    async function load() {
+      const user = await loadSession(true);
+      if (!user) return false;
+      if (user.approvalStatus !== 'pending') {
+        location.replace(user.role === 'tutor' ? routes.tutor : user.role === 'admin' ? routes.admin : routes.student);
+        return false;
+      }
+      return true;
+    }
+
+    $('transcriptButton').addEventListener('click', () => upload('transcript', $('transcriptInput'), ['pdf']));
+    $('supportButton').addEventListener('click', () => upload('supporting', $('supportInput'), ['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx']));
+    ['transcriptInput', 'supportInput'].forEach((id) => $(id).addEventListener('change', () => {
+      const file = $(id).files[0];
+      setStatus(fileStatus, '');
+      if (!file) return;
+      const problem = fileNameProblem(file.name, id === 'transcriptInput' ? ['pdf'] : ['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx']);
+      if (problem) {
+        setStatus(fileStatus, problem, 'error');
+        $(id).value = '';
+      }
+    }));
+    ['school', 'fieldOfStudy'].forEach((id) => $(id).addEventListener('input', () => application && render()));
+
+    $('submit').addEventListener('click', async () => {
+      $('submit').disabled = true;
+      try {
+        const result = await api('submit-application', { school: $('school').value.trim(), fieldOfStudy: $('fieldOfStudy').value.trim(), subjects: [...subjects] });
+        application.submittedAt = new Date().toISOString();
+        render();
+        setStatus(status, result.message, 'success');
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      } finally {
+        $('submit').disabled = false;
+      }
+    });
+
+    $('check').addEventListener('click', async () => {
+      if (await load()) setStatus(status, 'Still waiting for approval. We’ll email you as soon as you’re in.');
+    });
+
     setupHeader({ role: 'student' }, 'student');
-    check(false);
-    setInterval(() => check(false), 30000);
+    (async () => {
+      if (!(await load())) return;
+      application = (await api('my-application')).application;
+      $('school').value = application.school;
+      $('fieldOfStudy').value = application.fieldOfStudy;
+      subjects = new Set(application.subjects);
+      render();
+    })();
+    setInterval(load, 30000);
   </script>
 </body>
 </html>
