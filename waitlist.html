@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>You're on the waitlist | TutorRush</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="waitlist.html"><span class="logo">TR</span><span>tutor rush</span></a>
+    <div class="actions"><button id="logout" type="button">log out</button></div>
+  </header>
+  <main class="page">
+    <p class="eyebrow">Almost there</p>
+    <h1>You’re on the<br><em>waitlist.</em></h1>
+    <p class="lead">Thanks for joining TutorRush! We’re building our first community before we go live. We’ll email you as soon as your account is approved.</p>
+
+    <section class="panel">
+      <dl style="display:grid;gap:.8rem;margin:0">
+        <div><dt class="eyebrow">Name</dt><dd id="infoName" style="margin:.2rem 0 0;font-weight:700"></dd></div>
+        <div><dt class="eyebrow">Email</dt><dd id="infoEmail" style="margin:.2rem 0 0;font-weight:700"></dd></div>
+        <div><dt class="eyebrow">Signed up as</dt><dd id="infoRole" style="margin:.2rem 0 0;font-weight:700"></dd></div>
+        <div><dt class="eyebrow">Status</dt><dd style="margin:.2rem 0 0"><span class="badge">WAITING FOR APPROVAL</span></dd></div>
+      </dl>
+      <p>You don’t need to do anything else. If you’ve been approved, this page takes you to your dashboard.</p>
+      <button id="check" class="green" type="button" style="margin-top:1rem">check my status</button>
+      <p class="status" id="status" role="status"></p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const status = document.getElementById('status');
+    const ROLE_LABELS = { student: 'Student', tutor: 'Tutor', both: 'Student + tutor' };
+
+    async function check(manual) {
+      const user = await loadSession(true);
+      if (!user) return;
+      document.getElementById('infoName').textContent = user.name;
+      document.getElementById('infoEmail').textContent = user.email;
+      document.getElementById('infoRole').textContent = ROLE_LABELS[user.role] || user.role;
+      if (user.approvalStatus !== 'pending') {
+        location.replace(user.role === 'tutor' ? routes.tutor : user.role === 'admin' ? routes.admin : routes.student);
+      } else if (manual) {
+        setStatus(status, 'Still waiting for approval. We’ll email you as soon as you’re in.');
+      }
+    }
+
+    document.getElementById('check').addEventListener('click', () => check(true));
+    setupHeader({ role: 'student' }, 'student');
+    check(false);
+    setInterval(() => check(false), 30000);
+  </script>
+</body>
+</html>

@@ -11,7 +11,18 @@ if (is_file($smtpConfigPath)) {
     require_once $smtpConfigPath;
 }
 
+const SESSION_LIFETIME_SECONDS = 30 * 24 * 3600;
+$sessionDirectory = __DIR__ . '/storage/sessions';
+if (!is_dir($sessionDirectory)) {
+    @mkdir($sessionDirectory, 0700, true);
+}
+if (is_dir($sessionDirectory) && is_writable($sessionDirectory)) {
+    session_save_path($sessionDirectory);
+}
+ini_set('session.gc_maxlifetime', (string) SESSION_LIFETIME_SECONDS);
 session_set_cookie_params([
+    'lifetime' => SESSION_LIFETIME_SECONDS,
+    'path' => '/',
     'httponly' => true,
     'samesite' => 'Lax',
     'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
@@ -22,6 +33,7 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 
 const ADMIN_EMAIL = 'diyoradaminovaz.m@gmail.com';
+const TUTOR_HEARTBEAT_SECONDS = 150;
 
 function debugLog(string $event, array $context = []): void {
     $entry = [
@@ -196,15 +208,16 @@ function handleGoogleOAuth(PDO $database, string $action): never {
         if ($name === '') $name = strstr($email, '@', true) ?: 'Google user';
         $name = mb_substr($name, 0, 80);
 
-        $statement = $database->prepare('SELECT id, name, email, role FROM users WHERE email = ?');
+        $statement = $database->prepare('SELECT id, name, email, role, approval_status FROM users WHERE email = ?');
         $statement->execute([$email]);
         $user = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
             $role = $email === strtolower(ADMIN_EMAIL) ? 'admin' : $oauthState['role'];
             try {
-                $insert = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)');
-                $insert->execute([$name, $email, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $role]);
-                $user = ['id' => (int) $database->lastInsertId(), 'name' => $name, 'email' => $email, 'role' => $role];
+                $insert = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at, approval_status) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)');
+                $approval = $role === 'admin' ? 'approved' : 'pending';
+                $insert->execute([$name, $email, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $role, $approval]);
+                $user = ['id' => (int) $database->lastInsertId(), 'name' => $name, 'email' => $email, 'role' => $role, 'approval_status' => $approval];
             } catch (PDOException $exception) {
                 $statement->execute([$email]);
                 $user = $statement->fetch(PDO::FETCH_ASSOC);
@@ -217,7 +230,7 @@ function handleGoogleOAuth(PDO $database, string $action): never {
         session_regenerate_id(true);
         $_SESSION['tutorrush_user_id'] = (int) $user['id'];
         $_SESSION['tutorrush_role'] = $user['role'];
-        header('Location: ' . dashboardForRole($user['role']), true, 302);
+        header('Location: ' . (($user['approval_status'] ?? 'approved') === 'pending' ? 'waitlist.html' : dashboardForRole($user['role'])), true, 302);
         exit;
     } catch (Throwable $exception) {
         debugLog('google_oauth_failed', ['reason' => $exception->getMessage()]);
@@ -296,6 +309,87 @@ function requireUserId(): int {
     return (int) $_SESSION['tutorrush_user_id'];
 }
 
+function requireApprovedUser(PDO $database): int {
+    $userId = requireUserId();
+    $statement = $database->prepare('SELECT role, approval_status FROM users WHERE id = ?');
+    $statement->execute([$userId]);
+    $row = $statement->fetch(PDO::FETCH_ASSOC);
+    if (!$row) respond(401, ['error' => 'Please log in first.']);
+    if ($row['role'] !== 'admin' && $row['approval_status'] !== 'approved') {
+        respond(403, ['error' => 'Your account is on the waitlist. We will let you know when it is approved.']);
+    }
+    return $userId;
+}
+
+// Tutors count as reachable only while they are online and their open dashboard keeps checking in.
+function availableTutorIds(PDO $database, string $subject, int $excludeUserId, ?int $requestId = null): array {
+    $sql = "SELECT id, tutor_subjects FROM users WHERE id != ? AND availability_status = 'online' AND role IN ('tutor', 'both') AND approval_status = 'approved' AND last_seen_at >= datetime('now', ?)";
+    $params = [$excludeUserId, '-' . TUTOR_HEARTBEAT_SECONDS . ' seconds'];
+    if ($requestId !== null) {
+        $sql .= ' AND NOT EXISTS (SELECT 1 FROM match_declines d WHERE d.request_id = ? AND d.tutor_id = users.id)';
+        $params[] = $requestId;
+    }
+    $statement = $database->prepare($sql);
+    $statement->execute($params);
+    $ids = [];
+    foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+        $subjects = json_decode((string) $candidate['tutor_subjects'], true);
+        if (is_array($subjects) && in_array($subject, $subjects, true)) $ids[] = (int) $candidate['id'];
+    }
+    return $ids;
+}
+
+function sendPlainEmail(string $email, string $name, string $subject, string $body): bool {
+    $smtpPassword = getenv('TUTORUSH_SMTP_PASSWORD') ?: (defined('TUTORUSH_SMTP_PASSWORD') ? TUTORUSH_SMTP_PASSWORD : null);
+    if (!$smtpPassword) return false;
+    $smtpUsername = getenv('TUTORUSH_SMTP_USERNAME') ?: (defined('TUTORUSH_SMTP_USERNAME') ? TUTORUSH_SMTP_USERNAME : 'info@tutorush.com');
+    try {
+        $mailer = new PHPMailer\PHPMailer\PHPMailer(true);
+        $mailer->isSMTP();
+        $mailer->Host = getenv('TUTORUSH_SMTP_HOST') ?: (defined('TUTORUSH_SMTP_HOST') ? TUTORUSH_SMTP_HOST : 'smtp.hostinger.com');
+        $mailer->SMTPAuth = true;
+        $mailer->Username = $smtpUsername;
+        $mailer->Password = $smtpPassword;
+        $mailer->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;
+        $mailer->Port = (int) (getenv('TUTORUSH_SMTP_PORT') ?: (defined('TUTORUSH_SMTP_PORT') ? TUTORUSH_SMTP_PORT : 465));
+        $mailer->CharSet = 'UTF-8';
+        $mailer->setFrom(getenv('TUTORUSH_MAIL_FROM') ?: (defined('TUTORUSH_MAIL_FROM') ? TUTORUSH_MAIL_FROM : $smtpUsername), getenv('TUTORUSH_MAIL_FROM_NAME') ?: (defined('TUTORUSH_MAIL_FROM_NAME') ? TUTORUSH_MAIL_FROM_NAME : 'TutorRush'));
+        $mailer->addAddress($email, $name);
+        $mailer->Subject = $subject;
+        $mailer->Body = $body;
+        $mailer->send();
+        return true;
+    } catch (Throwable $exception) {
+        debugLog('mail_failed', ['reason' => $exception->getMessage()]);
+        return false;
+    }
+}
+
+function studentRequestPayload(PDO $database, int $requestId, int $studentId): ?array {
+    $statement = $database->prepare('SELECT m.id, m.status, m.subject, m.help_type, m.duration, m.note, m.created_at, t.name AS tutor_name, r.id AS room_id FROM match_requests m LEFT JOIN users t ON t.id = m.tutor_id LEFT JOIN study_rooms r ON r.match_request_id = m.id WHERE m.id = ? AND m.student_id = ?');
+    $statement->execute([$requestId, $studentId]);
+    $match = $statement->fetch(PDO::FETCH_ASSOC);
+    if (!$match) return null;
+    $createdAt = strtotime($match['created_at'] . ' UTC');
+    if ($match['status'] === 'pending' && $createdAt < time() - OFFER_TTL_MINUTES * 60) {
+        $match['status'] = 'expired';
+    }
+    return [
+        'id' => (int) $match['id'],
+        'status' => $match['status'],
+        'subject' => $match['subject'],
+        'help_type' => $match['help_type'],
+        'duration' => (int) $match['duration'],
+        'note' => $match['note'],
+        'tutor_name' => $match['tutor_name'],
+        'room_id' => $match['room_id'] === null ? null : (int) $match['room_id'],
+        'available_tutors' => $match['status'] === 'pending' ? count(availableTutorIds($database, $match['subject'], $studentId, (int) $match['id'])) : null,
+        'created_at' => isoTime($match['created_at']),
+        'now' => isoTime(gmdate('Y-m-d H:i:s')),
+        'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $createdAt + OFFER_TTL_MINUTES * 60),
+    ];
+}
+
 function requireAdmin(): void {
     if (($_SESSION['tutorrush_role'] ?? '') !== 'admin') {
         respond(403, ['error' => 'Administrator access is required.']);
@@ -308,6 +402,7 @@ function userPayload(array $user): array {
         'name' => $user['name'],
         'email' => $user['email'],
         'role' => $user['role'],
+        'approvalStatus' => $user['approval_status'] ?? 'approved',
         'availabilityStatus' => $user['availability_status'] ?? ((int) ($user['is_online'] ?? 0) ? 'online' : 'offline'),
         'subjects' => json_decode((string) ($user['tutor_subjects'] ?? ''), true) ?: [],
     ];
@@ -441,6 +536,12 @@ try {
     if (!in_array('tutor_subjects', $userColumns, true)) {
         $database->exec("ALTER TABLE users ADD COLUMN tutor_subjects TEXT NOT NULL DEFAULT ''");
     }
+    if (!in_array('approval_status', $userColumns, true)) {
+        $database->exec("ALTER TABLE users ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'approved'");
+    }
+    if (!in_array('last_seen_at', $userColumns, true)) {
+        $database->exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
+    }
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
         $database->exec('PRAGMA foreign_keys = OFF');
@@ -549,7 +650,7 @@ try {
     $database->exec('CREATE TABLE IF NOT EXISTS match_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_id INTEGER NOT NULL,
-        tutor_id INTEGER NOT NULL,
+        tutor_id INTEGER,
         subject TEXT NOT NULL,
         help_type TEXT NOT NULL,
         duration INTEGER NOT NULL,
@@ -563,6 +664,39 @@ try {
     if (!in_array('subject', $matchColumns, true)) {
         $database->exec("ALTER TABLE match_requests ADD COLUMN subject TEXT NOT NULL DEFAULT 'General tutoring'");
     }
+    foreach ($database->query('PRAGMA table_info(match_requests)')->fetchAll(PDO::FETCH_ASSOC) as $column) {
+        if ($column['name'] === 'tutor_id' && (int) $column['notnull'] === 1) {
+            // Requests are now broadcast to every matching tutor, so the tutor is only set once someone accepts.
+            $database->exec('PRAGMA foreign_keys = OFF');
+            $database->exec('BEGIN');
+            $database->exec('CREATE TABLE match_requests_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                tutor_id INTEGER,
+                subject TEXT NOT NULL,
+                help_type TEXT NOT NULL,
+                duration INTEGER NOT NULL,
+                note TEXT,
+                status TEXT NOT NULL DEFAULT \'pending\',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(student_id) REFERENCES users(id),
+                FOREIGN KEY(tutor_id) REFERENCES users(id)
+            )');
+            $database->exec("INSERT INTO match_requests_new (id, student_id, tutor_id, subject, help_type, duration, note, status, created_at) SELECT id, student_id, tutor_id, subject, help_type, duration, note, CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END, created_at FROM match_requests");
+            $database->exec('DROP TABLE match_requests');
+            $database->exec('ALTER TABLE match_requests_new RENAME TO match_requests');
+            $database->exec('COMMIT');
+            $database->exec('PRAGMA foreign_keys = ON');
+        }
+    }
+    $database->exec('CREATE TABLE IF NOT EXISTS match_declines (
+        request_id INTEGER NOT NULL,
+        tutor_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(request_id, tutor_id),
+        FOREIGN KEY(request_id) REFERENCES match_requests(id),
+        FOREIGN KEY(tutor_id) REFERENCES users(id)
+    )');
     $database->exec('CREATE TABLE IF NOT EXISTS email_verifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -651,16 +785,19 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'logout', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-match-request', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-set-approval', 'admin-delete-user'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
     if ($action === 'session') {
         $user = null;
         if (isset($_SESSION['tutorrush_user_id'])) {
-            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status, tutor_subjects FROM users WHERE id = ?');
+            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status, tutor_subjects, approval_status FROM users WHERE id = ?');
             $statement->execute([(int) $_SESSION['tutorrush_user_id']]);
             $user = $statement->fetch(PDO::FETCH_ASSOC) ?: null;
+            if ($user) {
+                $database->prepare('UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([(int) $user['id']]);
+            }
         }
         respond(200, ['csrfToken' => csrfToken(), 'user' => $user ? userPayload($user) : null]);
     }
@@ -695,7 +832,7 @@ try {
         $update->execute([(int) $verification['user_id']]);
         $delete = $database->prepare('DELETE FROM email_verifications WHERE user_id = ?');
         $delete->execute([(int) $verification['user_id']]);
-        respond(200, ['message' => 'Your email is confirmed. You can log in now.']);
+        respond(200, ['message' => 'Your email is confirmed. You are on our waitlist now, and we will let you know when your account is approved. You can log in to check your status.']);
     }
 
     if ($action === 'resend-verification') {
@@ -720,6 +857,14 @@ try {
 
     requireCsrfToken();
 
+    if ($action === 'logout') {
+        $database->prepare("UPDATE users SET is_online = 0, availability_status = 'offline' WHERE id = ? AND availability_status = 'online'")->execute([(int) ($_SESSION['tutorrush_user_id'] ?? 0)]);
+        $_SESSION = [];
+        setcookie(session_name(), '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+        session_destroy();
+        respond(200, ['ok' => true]);
+    }
+
     if ($action === 'signup') {
         $name = validateText($request['name'] ?? '', 80, 'Name');
         $email = strtolower(trim((string) ($request['email'] ?? '')));
@@ -733,8 +878,8 @@ try {
         }
         $role = $email === ADMIN_EMAIL ? 'admin' : $requestedRole;
         try {
-            $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at) VALUES (?, ?, ?, ?, NULL)');
-            $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
+            $statement = $database->prepare('INSERT INTO users (name, email, password_hash, role, email_verified_at, approval_status) VALUES (?, ?, ?, ?, NULL, ?)');
+            $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $role === 'admin' ? 'approved' : 'pending']);
         } catch (PDOException $exception) {
             if ((int) $exception->getCode() === 23000) respond(409, ['error' => 'An account with that email already exists.']);
             throw $exception;
@@ -748,14 +893,14 @@ try {
             $database->prepare('DELETE FROM users WHERE id = ?')->execute([$userId]);
             respond(500, ['error' => 'Your account was created, but the confirmation email could not be sent. Contact support.']);
         }
-        respond(201, ['message' => 'Account created. Check your email to confirm your account.']);
+        respond(201, ['message' => 'You are on the waitlist! Check your email to confirm your address. We will let you know as soon as your account is approved.']);
     }
 
     if ($action === 'login') {
         $email = strtolower(trim((string) ($request['email'] ?? '')));
         $password = (string) ($request['password'] ?? '');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) > 128) respond(422, ['error' => 'Provide a valid email and password.']);
-        $statement = $database->prepare('SELECT id, name, email, password_hash, role, email_verified_at, availability_status FROM users WHERE email = ?');
+        $statement = $database->prepare('SELECT id, name, email, password_hash, role, email_verified_at, availability_status, approval_status FROM users WHERE email = ?');
         $statement->execute([$email]);
         $user = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
@@ -796,35 +941,39 @@ try {
     }
 
     if ($action === 'set-tutor-status') {
-        $userId = requireUserId();
+        $userId = requireApprovedUser($database);
         $status = filter_var($request['online'] ?? false, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-        $userStatement = $database->prepare('SELECT role FROM users WHERE id = ?');
+        $userStatement = $database->prepare('SELECT role, tutor_subjects FROM users WHERE id = ?');
         $userStatement->execute([$userId]);
-        $role = $userStatement->fetchColumn();
+        $tutorRow = $userStatement->fetch(PDO::FETCH_ASSOC);
+        $role = $tutorRow['role'] ?? null;
         if (!in_array($role, ['tutor', 'both', 'admin'], true) || $status === null) {
             respond(403, ['error' => 'Tutor access is required.']);
         }
         if ($status && activeRoomId($database, $userId) !== null) {
             respond(409, ['error' => 'End your active study session before going online.']);
         }
+        if ($status && !json_decode((string) $tutorRow['tutor_subjects'], true)) {
+            respond(422, ['error' => 'Choose at least one subject you can teach before going online.']);
+        }
         $availabilityStatus = $status ? 'online' : 'offline';
-        $statement = $database->prepare('UPDATE users SET is_online = ?, availability_status = ? WHERE id = ?');
+        $statement = $database->prepare('UPDATE users SET is_online = ?, availability_status = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?');
         $statement->execute([$status ? 1 : 0, $availabilityStatus, $userId]);
         respond(200, ['online' => (bool) $status, 'status' => $availabilityStatus]);
     }
 
     if ($action === 'set-tutor-subjects') {
-        $userId = requireUserId();
+        $userId = requireApprovedUser($database);
         $subjects = $request['subjects'] ?? [];
         if (!is_array($subjects) || count($subjects) > 20) respond(422, ['error' => 'Choose up to 20 subjects.']);
         $subjects = array_values(array_unique(array_filter(array_map(static fn($subject) => trim((string) $subject), $subjects))));
-        $statement = $database->prepare('UPDATE users SET tutor_subjects = ? WHERE id = ?');
-        $statement->execute([json_encode($subjects, JSON_UNESCAPED_UNICODE), $userId]);
+        $statement = $database->prepare('UPDATE users SET tutor_subjects = ?, availability_status = CASE WHEN ? = 0 AND availability_status = \'online\' THEN \'offline\' ELSE availability_status END, is_online = CASE WHEN ? = 0 AND availability_status = \'online\' THEN 0 ELSE is_online END WHERE id = ?');
+        $statement->execute([json_encode($subjects, JSON_UNESCAPED_UNICODE), count($subjects), count($subjects), $userId]);
         respond(200, ['subjects' => $subjects]);
     }
 
     if ($action === 'find-online-tutor') {
-        $userId = requireUserId();
+        $userId = requireApprovedUser($database);
         $subject = validateText($request['subject'] ?? '', 80, 'Class or topic');
         $helpType = validateText($request['helpType'] ?? '', 60, 'Help type');
         $duration = filter_var($request['duration'] ?? null, FILTER_VALIDATE_INT);
@@ -835,41 +984,65 @@ try {
         if (activeRoomId($database, $userId) !== null) {
             respond(409, ['error' => 'You already have an active study session. End it before requesting a new tutor.']);
         }
-        $statement = $database->prepare("SELECT id, name, role, tutor_subjects FROM users WHERE id != ? AND availability_status = 'online' AND role IN ('tutor', 'both') ORDER BY RANDOM()");
-        $statement->execute([$userId]);
-        $tutor = null;
-        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
-            $subjects = json_decode((string) $candidate['tutor_subjects'], true);
-            if (is_array($subjects) && in_array($subject, $subjects, true)) { $tutor = $candidate; break; }
+        if (!availableTutorIds($database, $subject, $userId)) {
+            respond(404, ['error' => 'No tutors are online for that subject right now. Try again soon.']);
         }
-        if (!$tutor) respond(404, ['error' => 'No tutors are online right now. Try again soon.']);
-        $requestInsert = $database->prepare('INSERT INTO match_requests (student_id, tutor_id, subject, help_type, duration, note) VALUES (?, ?, ?, ?, ?, ?)');
-        $requestInsert->execute([$userId, (int) $tutor['id'], $subject, $helpType, $duration, $note ?: null]);
-        respond(200, ['tutor' => ['id' => (int) $tutor['id'], 'name' => $tutor['name'], 'role' => $tutor['role']], 'request' => ['id' => (int) $database->lastInsertId(), 'subject' => $subject, 'helpType' => $helpType, 'duration' => $duration, 'note' => $note]]);
+        $database->prepare("UPDATE match_requests SET status = 'cancelled' WHERE student_id = ? AND status = 'pending'")->execute([$userId]);
+        $database->prepare('INSERT INTO match_requests (student_id, subject, help_type, duration, note) VALUES (?, ?, ?, ?, ?)')->execute([$userId, $subject, $helpType, $duration, $note ?: null]);
+        respond(200, ['request' => studentRequestPayload($database, (int) $database->lastInsertId(), $userId)]);
     }
 
     if ($action === 'tutor-requests') {
-        $userId = requireUserId();
-        $statement = $database->prepare("SELECT m.id, m.subject, m.help_type, m.duration, m.note, m.status, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.tutor_id = ? AND m.status = 'pending' AND m.created_at >= datetime('now', ?) ORDER BY m.id DESC");
-        $statement->execute([$userId, '-' . OFFER_TTL_MINUTES . ' minutes']);
-        $requests = array_map(static fn(array $row): array => [...$row, 'created_at' => isoTime($row['created_at'])], $statement->fetchAll(PDO::FETCH_ASSOC));
-        respond(200, ['requests' => $requests]);
+        $userId = requireApprovedUser($database);
+        $database->prepare('UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$userId]);
+        $tutorStatement = $database->prepare('SELECT availability_status, tutor_subjects FROM users WHERE id = ?');
+        $tutorStatement->execute([$userId]);
+        $tutor = $tutorStatement->fetch(PDO::FETCH_ASSOC);
+        $requests = [];
+        if ($tutor && $tutor['availability_status'] === 'online') {
+            $subjects = json_decode((string) $tutor['tutor_subjects'], true) ?: [];
+            // Oldest request first, so the student who has waited longest is served first.
+            $statement = $database->prepare("SELECT m.id, m.subject, m.help_type, m.duration, m.note, m.created_at, u.name AS student_name FROM match_requests m JOIN users u ON u.id = m.student_id WHERE m.status = 'pending' AND m.tutor_id IS NULL AND m.student_id != ? AND m.created_at >= datetime('now', ?) AND NOT EXISTS (SELECT 1 FROM match_declines d WHERE d.request_id = m.id AND d.tutor_id = ?) ORDER BY m.id ASC");
+            $statement->execute([$userId, '-' . OFFER_TTL_MINUTES . ' minutes', $userId]);
+            foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                if (in_array($row['subject'], $subjects, true)) {
+                    $requests[] = [...$row, 'created_at' => isoTime($row['created_at'])];
+                }
+            }
+        }
+        respond(200, ['requests' => $requests, 'availabilityStatus' => $tutor['availability_status'] ?? 'offline', 'now' => isoTime(gmdate('Y-m-d H:i:s'))]);
     }
 
     if ($action === 'accept-match-request') {
-        $tutorId = requireUserId();
+        $tutorId = requireApprovedUser($database);
         $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
         if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
         if (activeRoomId($database, $tutorId) !== null) {
             respond(409, ['error' => 'End your current study session before accepting another.']);
         }
+        $tutorStatement = $database->prepare('SELECT role, availability_status, tutor_subjects FROM users WHERE id = ?');
+        $tutorStatement->execute([$tutorId]);
+        $tutorRow = $tutorStatement->fetch(PDO::FETCH_ASSOC);
+        if (!$tutorRow || $tutorRow['availability_status'] !== 'online' || !in_array($tutorRow['role'], ['tutor', 'both', 'admin'], true)) {
+            respond(409, ['error' => 'Switch to online before accepting requests.']);
+        }
+        $subjectStatement = $database->prepare('SELECT subject FROM match_requests WHERE id = ?');
+        $subjectStatement->execute([$requestId]);
+        $requestSubject = $subjectStatement->fetchColumn();
+        if ($requestSubject === false) respond(404, ['error' => 'This request no longer exists.']);
+        if (!in_array($requestSubject, json_decode((string) $tutorRow['tutor_subjects'], true) ?: [], true)) {
+            respond(403, ['error' => 'This request is outside the subjects you teach.']);
+        }
         $database->beginTransaction();
         try {
-            $statement = $database->prepare("UPDATE match_requests SET status = 'accepted' WHERE id = ? AND tutor_id = ? AND status = 'pending' AND created_at >= datetime('now', ?)");
-            $statement->execute([$requestId, $tutorId, '-' . OFFER_TTL_MINUTES . ' minutes']);
+            // The single guarded UPDATE is what makes the first accepting tutor win.
+            $statement = $database->prepare("UPDATE match_requests SET status = 'accepted', tutor_id = ? WHERE id = ? AND status = 'pending' AND tutor_id IS NULL AND student_id != ? AND created_at >= datetime('now', ?)");
+            $statement->execute([$tutorId, $requestId, $tutorId, '-' . OFFER_TTL_MINUTES . ' minutes']);
             if ($statement->rowCount() === 0) {
                 $database->rollBack();
-                respond(404, ['error' => 'This offer is no longer available.']);
+                $currentStatus = $database->prepare('SELECT status FROM match_requests WHERE id = ?');
+                $currentStatus->execute([$requestId]);
+                respond(409, ['error' => $currentStatus->fetchColumn() === 'accepted' ? 'Another tutor accepted this student first.' : 'This request is no longer available.']);
             }
             $studentStatement = $database->prepare('SELECT student_id FROM match_requests WHERE id = ?');
             $studentStatement->execute([$requestId]);
@@ -887,30 +1060,41 @@ try {
     }
 
     if ($action === 'match-request-status') {
-        $studentId = requireUserId();
+        $studentId = requireApprovedUser($database);
         $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
         if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
-        $statement = $database->prepare('SELECT m.id, m.status, m.subject, m.help_type, m.duration, m.note, m.created_at, t.name AS tutor_name, r.id AS room_id FROM match_requests m JOIN users t ON t.id = m.tutor_id LEFT JOIN study_rooms r ON r.match_request_id = m.id WHERE m.id = ? AND m.student_id = ?');
-        $statement->execute([$requestId, $studentId]);
-        $match = $statement->fetch(PDO::FETCH_ASSOC);
+        $match = studentRequestPayload($database, $requestId, $studentId);
         if (!$match) respond(404, ['error' => 'Match request not found.']);
-        if ($match['status'] === 'pending' && strtotime($match['created_at'] . ' UTC') < time() - OFFER_TTL_MINUTES * 60) {
-            $match['status'] = 'expired';
-        }
-        unset($match['created_at']);
-        $match['room_id'] = $match['room_id'] === null ? null : (int) $match['room_id'];
         respond(200, ['request' => $match]);
     }
 
-    if ($action === 'decline-match-request' || $action === 'cancel-match-request') {
-        $userId = requireUserId();
+    if ($action === 'my-match-request') {
+        $studentId = requireApprovedUser($database);
+        $statement = $database->prepare("SELECT id FROM match_requests WHERE student_id = ? AND status = 'pending' AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1");
+        $statement->execute([$studentId, '-' . OFFER_TTL_MINUTES . ' minutes']);
+        $pendingId = $statement->fetchColumn();
+        respond(200, ['request' => $pendingId === false ? null : studentRequestPayload($database, (int) $pendingId, $studentId)]);
+    }
+
+    if ($action === 'decline-match-request') {
+        $tutorId = requireApprovedUser($database);
         $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
         if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
-        $isDecline = $action === 'decline-match-request';
-        $statement = $database->prepare('UPDATE match_requests SET status = ? WHERE id = ? AND ' . ($isDecline ? 'tutor_id' : 'student_id') . " = ? AND status = 'pending'");
-        $statement->execute([$isDecline ? 'declined' : 'cancelled', $requestId, $userId]);
+        $statement = $database->prepare("SELECT id FROM match_requests WHERE id = ? AND status = 'pending' AND tutor_id IS NULL");
+        $statement->execute([$requestId]);
+        if ($statement->fetchColumn() === false) respond(404, ['error' => 'This request is no longer pending.']);
+        $database->prepare('INSERT OR IGNORE INTO match_declines (request_id, tutor_id) VALUES (?, ?)')->execute([$requestId, $tutorId]);
+        respond(200, ['status' => 'declined']);
+    }
+
+    if ($action === 'cancel-match-request') {
+        $userId = requireApprovedUser($database);
+        $requestId = filter_var($request['requestId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$requestId) respond(422, ['error' => 'A valid request is required.']);
+        $statement = $database->prepare("UPDATE match_requests SET status = 'cancelled' WHERE id = ? AND student_id = ? AND status = 'pending'");
+        $statement->execute([$requestId, $userId]);
         if ($statement->rowCount() === 0) respond(404, ['error' => 'This request is no longer pending.']);
-        respond(200, ['status' => $isDecline ? 'declined' : 'cancelled']);
+        respond(200, ['status' => 'cancelled']);
     }
 
     if ($action === 'my-rooms') {
@@ -1147,7 +1331,7 @@ try {
             'messages' => (int) $database->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
         ];
         $recentBookings = $database->query('SELECT b.tutor_name, b.mode, b.status, b.scheduled_for, u.name AS student_name FROM bookings b JOIN users u ON u.id = b.student_id ORDER BY b.id DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
-        $users = $database->query('SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC, id DESC')->fetchAll(PDO::FETCH_ASSOC);
+        $users = $database->query('SELECT id, name, email, role, approval_status, email_verified_at, created_at FROM users ORDER BY created_at DESC, id DESC')->fetchAll(PDO::FETCH_ASSOC);
         respond(200, ['summary' => $summary, 'recentBookings' => $recentBookings, 'users' => $users]);
     }
 
@@ -1167,6 +1351,39 @@ try {
             respond(404, ['error' => 'User not found or role is unchanged.']);
         }
         respond(200, ['message' => 'User role updated.', 'role' => $role]);
+    }
+
+    if ($action === 'admin-set-approval') {
+        requireAdmin();
+        $approve = filter_var($request['approved'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($approve === null) respond(422, ['error' => 'Choose whether to approve or revoke access.']);
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $loginUrl = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'tutorush.com') . '/login.html';
+        $notify = static fn(array $person): bool => sendPlainEmail($person['email'], $person['name'], 'Your TutorRush account is approved', "Hi {$person['name']},\n\nGood news: your TutorRush account has been approved and you are in!\nLog in here to get started:\n$loginUrl\n\nThe TutorRush team\n");
+        if (!empty($request['all'])) {
+            if (!$approve) respond(422, ['error' => 'Bulk revoke is not supported.']);
+            set_time_limit(120);
+            $pending = $database->query("SELECT id, name, email FROM users WHERE approval_status = 'pending' AND email_verified_at IS NOT NULL LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
+            $mark = $database->prepare("UPDATE users SET approval_status = 'approved' WHERE id = ?");
+            foreach ($pending as $person) {
+                $mark->execute([(int) $person['id']]);
+                $notify($person);
+            }
+            respond(200, ['approved' => count($pending)]);
+        }
+        $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$userId) respond(422, ['error' => 'A valid user is required.']);
+        $statement = $database->prepare("SELECT id, name, email, role FROM users WHERE id = ?");
+        $statement->execute([$userId]);
+        $person = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$person) respond(404, ['error' => 'User not found.']);
+        if ($person['role'] === 'admin') respond(422, ['error' => 'Admins are always approved.']);
+        $database->prepare('UPDATE users SET approval_status = ? WHERE id = ?')->execute([$approve ? 'approved' : 'pending', $userId]);
+        if (!$approve) {
+            $database->prepare("UPDATE users SET is_online = 0, availability_status = 'offline' WHERE id = ? AND availability_status = 'online'")->execute([$userId]);
+        }
+        $emailed = $approve ? $notify($person) : false;
+        respond(200, ['approvalStatus' => $approve ? 'approved' : 'pending', 'emailed' => $emailed]);
     }
 
     if ($action === 'admin-delete-user') {
@@ -1192,6 +1409,7 @@ try {
                 $database->prepare('DELETE FROM study_rooms WHERE id = ?')->execute([$roomId]);
             }
             $database->prepare('DELETE FROM room_call_signals WHERE sender_id = ? OR room_id IN (SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
+            $database->prepare('DELETE FROM match_declines WHERE tutor_id = ? OR request_id IN (SELECT id FROM match_requests WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_requests WHERE student_id = ? OR tutor_id = ?')->execute([$userId, $userId]);
             foreach (['password_resets' => 'user_id', 'email_verifications' => 'user_id', 'messages' => 'user_id', 'availability' => 'user_id', 'bookings' => 'student_id', 'feedback_reports' => 'user_id'] as $table => $column) {
                 $statement = $database->prepare("DELETE FROM $table WHERE $column = ?");

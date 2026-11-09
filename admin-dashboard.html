@@ -44,6 +44,7 @@
       <button class="stat current" type="button" data-filter="all"><span>Total accounts</span><strong id="countAll">-</strong></button>
       <button class="stat" type="button" data-filter="student"><span>Students</span><strong id="countStudent">-</strong></button>
       <button class="stat" type="button" data-filter="tutor"><span>Tutors</span><strong id="countTutor">-</strong></button>
+      <button class="stat" type="button" data-filter="waitlist"><span>Waitlist</span><strong id="countWaitlist">-</strong></button>
       <button class="stat" type="button" data-filter="admin"><span>Admins</span><strong id="countAdmin">-</strong></button>
       <div class="stat static"><span>Bookings</span><strong id="bookingCount">-</strong></div>
       <div class="stat static"><span>Messages</span><strong id="messageCount">-</strong></div>
@@ -59,13 +60,16 @@
         <option value="tutor">Tutors (incl. both)</option>
         <option value="both">Both roles only</option>
         <option value="admin">Admins</option>
+        <option value="waitlist">Waitlist (awaiting approval)</option>
+        <option value="approved">Approved only</option>
       </select>
+      <button id="approveAll" class="green" type="button" hidden>approve all confirmed on waitlist</button>
     </section>
     <p class="status" id="status" role="status"></p>
 
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Change role</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Joined</th><th>Change role</th><th></th></tr></thead>
         <tbody id="usersBody"></tbody>
       </table>
     </div>
@@ -94,6 +98,8 @@
 
     function matchesRole(user, filter) {
       if (filter === 'all') return true;
+      if (filter === 'waitlist') return user.approval_status === 'pending';
+      if (filter === 'approved') return user.approval_status === 'approved';
       if (filter === 'student') return user.role === 'student' || user.role === 'both';
       if (filter === 'tutor') return user.role === 'tutor' || user.role === 'both';
       return user.role === filter;
@@ -105,6 +111,9 @@
       document.getElementById('countStudent').textContent = count('student');
       document.getElementById('countTutor').textContent = count('tutor');
       document.getElementById('countAdmin').textContent = count('admin');
+      const waiting = count('waitlist');
+      document.getElementById('countWaitlist').textContent = waiting;
+      document.getElementById('approveAll').hidden = !users.some((user) => user.approval_status === 'pending' && user.email_verified_at);
       const both = count('both');
       document.getElementById('bothNote').textContent = both ? `${both} account${both === 1 ? '' : 's'} with both roles count as a student and a tutor.` : '';
     }
@@ -119,13 +128,36 @@
       if (!visible.length) {
         const row = element('tr');
         const cell = element('td', 'empty', 'No accounts match your search.');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         row.appendChild(cell);
         body.appendChild(row);
       }
       visible.forEach((user) => {
         const row = element('tr');
-        row.append(element('td', '', user.name), element('td', '', user.email), element('td', '', user.role), element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
+        const accessCell = element('td');
+        if (user.role === 'admin') {
+          accessCell.appendChild(element('span', 'badge active', 'ADMIN'));
+        } else {
+          const pending = user.approval_status === 'pending';
+          accessCell.appendChild(element('span', `badge ${pending ? '' : 'active'}`, pending ? 'WAITLIST' : 'APPROVED'));
+          const approvalButton = element('button', pending ? 'green' : 'plain', pending ? 'approve' : 'revoke');
+          approvalButton.type = 'button';
+          approvalButton.style.marginLeft = '.5rem';
+          approvalButton.addEventListener('click', async () => {
+            approvalButton.disabled = true;
+            try {
+              const result = await api('admin-set-approval', { userId: user.id, approved: pending });
+              toast(pending ? (result.emailed ? `${user.name} approved and emailed.` : `${user.name} approved. The email could not be sent.`) : `${user.name}'s access was revoked.`);
+              await loadUsers();
+            } catch (error) {
+              toast(error.message);
+              approvalButton.disabled = false;
+            }
+          });
+          accessCell.appendChild(approvalButton);
+          if (!user.email_verified_at) accessCell.appendChild(element('small', '', ' email unconfirmed'));
+        }
+        row.append(element('td', '', user.name), element('td', '', user.email), element('td', '', user.role), accessCell, element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
 
         const roleCell = element('td');
         const roleSelect = element('select');
@@ -221,6 +253,16 @@
       renderUsers();
     }));
     roleFilter.addEventListener('change', renderUsers);
+    document.getElementById('approveAll').addEventListener('click', async () => {
+      if (!confirm('Approve every waitlisted account with a confirmed email? Each person gets an email.')) return;
+      try {
+        const result = await api('admin-set-approval', { all: true, approved: true });
+        toast(`${result.approved} account${result.approved === 1 ? '' : 's'} approved.`);
+        await loadUsers();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
     search.addEventListener('input', renderUsers);
 
     (async () => {

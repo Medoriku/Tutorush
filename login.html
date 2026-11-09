@@ -36,6 +36,8 @@
     .google-status { min-height:1.2rem; margin:.7rem 0 0; color:#756d87; text-align:center; font-size:.78rem; }
     .login-status { min-height:1.4rem; margin:1rem 0 0; color:#9b3f62; line-height:1.4; font-size:.85rem; }
     .login-status a { color:var(--ink); font-weight:700; }
+    .auth-divider + form { margin-top:1rem; padding-top:0; border-top:0; }
+    .google-status:empty { display:none; }
     .forgot-link { display:block; margin-top:1rem; font-size:.85rem; text-underline-offset:.25em; }
   </style>
 </head>
@@ -101,7 +103,9 @@
         both: 'student-dashboard.html',
         admin: 'admin-dashboard.html'
       };
-      window.location.href = dashboardByRole[loginData.user.role] || 'student-dashboard.html';
+      window.location.href = loginData.user.approvalStatus === 'pending'
+        ? 'waitlist.html'
+        : (dashboardByRole[loginData.user.role] || 'student-dashboard.html');
     } catch (error) {
       loginStatus.textContent = window.location.protocol === 'file:'
         ? 'This page is opened from your computer. Open it through your hosted site to log in.'

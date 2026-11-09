@@ -14,14 +14,14 @@
   <main class="page">
     <p class="eyebrow">Student dashboard</p>
     <h1>What are you<br><em>working on?</em></h1>
-    <p class="lead">Tell us what you need and we’ll connect you with an online tutor who knows the same material.</p>
+    <p class="lead">Tell us what you need. We’ll alert every online tutor who teaches it, and the first one to accept is yours.</p>
 
     <section class="banner" id="activeBanner" hidden>
       <div><strong>You have an active study session.</strong><p>Head back to your room to keep going.</p></div>
       <a class="button yellow" id="activeLink" href="#">open room</a>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="requestPanel">
       <h2>Find an online tutor</h2>
       <div class="form-grid">
         <div class="field"><label for="subject">Class or topic</label>
@@ -33,18 +33,36 @@
         <div class="field full"><label for="note">Anything the tutor should know?</label>
           <textarea id="note" maxlength="500" placeholder="Share the topic or question..."></textarea></div>
       </div>
-      <button id="findTutor" class="yellow" type="button" style="margin-top:1rem">send request</button>
-      <p class="status" id="status"></p>
+      <button id="findTutor" class="yellow" type="button" style="margin-top:1rem">request a tutor</button>
+      <p class="status" id="status" role="status"></p>
     </section>
 
-    <section class="panel" id="matchResult" hidden>
-      <div class="row">
-        <div><h2 id="matchTitle"></h2><p id="matchDetails"></p></div>
-        <span class="badge" id="matchBadge"></span>
-      </div>
-      <div style="margin-top:1rem">
+    <section class="match-panel" id="matchPanel" hidden aria-live="polite">
+      <div id="searchingView" hidden>
+        <div class="radar" aria-hidden="true"><span></span><span></span><span></span><div class="core" id="radarCount">0</div></div>
+        <h2 id="searchTitle"></h2>
+        <p id="searchText"></p>
+        <div class="search-meta"><span>Waiting: <span id="elapsed">0:00</span></span><span>Request expires in: <span id="remaining">--:--</span></span></div>
+        <ol class="steps" id="searchSteps">
+          <li data-n="1">Request sent</li><li data-n="2">Tutors alerted</li><li data-n="3">Tutor accepts</li><li data-n="4">Room opens</li>
+        </ol>
         <button id="cancelRequest" class="plain" type="button">cancel request</button>
-        <a class="button green" id="enterRoom" href="#" hidden>enter study room</a>
+      </div>
+
+      <div id="matchedView" hidden>
+        <div class="avatar" id="tutorAvatar">T</div>
+        <h2 id="matchedTitle"></h2>
+        <p id="matchedText"></p>
+        <ol class="steps"><li class="done" data-n="1">Request sent</li><li class="done" data-n="2">Tutors alerted</li><li class="done" data-n="3">Tutor accepts</li><li class="current" data-n="4">Room opens</li></ol>
+        <div class="progress"><span></span></div>
+        <p>Opening your study room...</p>
+        <a class="button green" id="enterRoom" href="#">enter study room now</a>
+      </div>
+
+      <div id="endedView" hidden>
+        <h2 id="endedTitle"></h2>
+        <p id="endedText"></p>
+        <button id="tryAgain" class="yellow" type="button" style="margin-top:1rem">try again</button>
       </div>
     </section>
 
@@ -57,63 +75,140 @@
 
   <script src="app.js"></script>
   <script>
+    const DRAFT_KEY = 'tutorrush-student-draft';
     const status = document.getElementById('status');
     const findButton = document.getElementById('findTutor');
-    const matchResult = document.getElementById('matchResult');
-    let requestId = null;
+    const requestPanel = document.getElementById('requestPanel');
+    const matchPanel = document.getElementById('matchPanel');
+    const views = { searching: document.getElementById('searchingView'), matched: document.getElementById('matchedView'), ended: document.getElementById('endedView') };
+    let current = null;
     let pollTimer = null;
+    let tickTimer = null;
+    let clockOffset = 0;
+    let hasActiveRoom = false;
 
-    function stopPolling() {
-      clearInterval(pollTimer);
-      pollTimer = null;
+    function showView(name) {
+      matchPanel.hidden = name === null;
+      requestPanel.hidden = name !== null;
+      matchPanel.classList.toggle('matched', name === 'matched');
+      Object.entries(views).forEach(([key, view]) => { view.hidden = key !== name; });
     }
 
-    function showMatch(title, details, badge, { pending = false, roomId = null } = {}) {
-      matchResult.hidden = false;
-      document.getElementById('matchTitle').textContent = title;
-      document.getElementById('matchDetails').textContent = details;
-      document.getElementById('matchBadge').textContent = badge;
-      document.getElementById('cancelRequest').hidden = !pending;
-      const enter = document.getElementById('enterRoom');
-      enter.hidden = roomId === null;
-      if (roomId !== null) enter.href = `room.html?id=${roomId}`;
+    function formatClock(seconds) {
+      const total = Math.max(0, Math.floor(seconds));
+      return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+    }
+
+    function stopTimers() {
+      clearInterval(pollTimer);
+      clearInterval(tickTimer);
+      pollTimer = tickTimer = null;
+    }
+
+    function setSteps(available) {
+      const steps = [...document.querySelectorAll('#searchSteps li')];
+      const states = available > 0 ? ['done', 'done', 'current', ''] : ['done', 'current', '', ''];
+      steps.forEach((step, index) => { step.className = states[index]; });
+    }
+
+    function renderSearching() {
+      const available = current.available_tutors ?? 0;
+      document.getElementById('radarCount').textContent = available;
+      document.getElementById('searchTitle').textContent = available > 0
+        ? `Alerting ${available} ${current.subject} tutor${available === 1 ? '' : 's'}...`
+        : `Waiting for a ${current.subject} tutor to come online...`;
+      document.getElementById('searchText').textContent = available > 0
+        ? 'The first tutor to accept gets you. We’ll open your study room the moment they do.'
+        : 'No tutor is free for this subject right now. Stay on this page and we’ll connect you as soon as one is available.';
+      setSteps(available);
+      updateClock();
+    }
+
+    function updateClock() {
+      if (!current) return;
+      const now = Date.now() + clockOffset;
+      document.getElementById('elapsed').textContent = formatClock((now - new Date(current.created_at).getTime()) / 1000);
+      document.getElementById('remaining').textContent = formatClock((new Date(current.expires_at).getTime() - now) / 1000);
+    }
+
+    function beginSearching(request) {
+      current = request;
+      clockOffset = new Date(request.now).getTime() - Date.now();
+      showView('searching');
+      renderSearching();
+      stopTimers();
+      pollTimer = setInterval(checkMatch, 2500);
+      tickTimer = setInterval(updateClock, 1000);
+    }
+
+    function showMatched(request) {
+      stopTimers();
+      playTone('join');
+      document.getElementById('tutorAvatar').textContent = (request.tutor_name || 'T').trim().charAt(0).toUpperCase();
+      document.getElementById('matchedTitle').textContent = `You’re matched with ${request.tutor_name}!`;
+      document.getElementById('matchedText').textContent = `${request.subject} · ${request.help_type} · ${request.duration} minutes`;
+      document.getElementById('enterRoom').href = `room.html?id=${request.room_id}`;
+      showView('matched');
+      setTimeout(() => { location.href = `room.html?id=${request.room_id}`; }, 2600);
+    }
+
+    function showEnded(request) {
+      stopTimers();
+      current = null;
+      const copy = {
+        expired: ['No tutor accepted in time', 'Nobody picked this up within 15 minutes. Try again, or pick a different subject.'],
+        cancelled: ['Request cancelled', 'No problem. Send a new request whenever you’re ready.'],
+      }[request.status] || ['Request closed', 'This request is no longer active.'];
+      document.getElementById('endedTitle').textContent = copy[0];
+      document.getElementById('endedText').textContent = copy[1];
+      showView('ended');
     }
 
     async function refreshRooms() {
       const { rooms } = await api('my-rooms');
       renderRoomList(document.getElementById('rooms'), rooms);
       const active = rooms.find((room) => room.status === 'active' && room.role === 'student');
+      hasActiveRoom = Boolean(active);
       document.getElementById('activeBanner').hidden = !active;
       if (active) document.getElementById('activeLink').href = `room.html?id=${active.id}`;
-      findButton.disabled = Boolean(active) || Boolean(requestId);
+      findButton.disabled = hasActiveRoom;
     }
 
     async function checkMatch() {
-      if (!requestId) return;
+      if (!current) return;
       try {
-        const { request } = await api('match-request-status', { requestId });
-        if (request.status === 'accepted' && request.room_id) {
-          stopPolling();
-          location.href = `room.html?id=${request.room_id}`;
-        } else if (['declined', 'expired', 'cancelled'].includes(request.status)) {
-          stopPolling();
-          requestId = null;
-          const messages = {
-            declined: `${request.tutor_name} could not take this one. Try again to reach another tutor.`,
-            expired: `${request.tutor_name} did not respond in time. Try again to reach another tutor.`,
-            cancelled: 'Request cancelled.',
-          };
-          showMatch('No match yet', messages[request.status], request.status.toUpperCase());
-          await refreshRooms();
+        const { request } = await api('match-request-status', { requestId: current.id });
+        if (request.status === 'accepted' && request.room_id) return showMatched(request);
+        if (request.status !== 'pending') {
+          showEnded(request);
+          return refreshRooms();
         }
+        current = { ...current, ...request };
+        renderSearching();
       } catch (error) {
         setStatus(status, error.message, 'error');
       }
     }
 
+    function saveDraft() {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ subject: subject.value, helpType: helpType.value, duration: duration.value, note: note.value }));
+    }
+
+    function restoreDraft() {
+      try {
+        const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+        ['subject', 'helpType', 'duration', 'note'].forEach((id) => {
+          const field = document.getElementById(id);
+          if (draft[id] !== undefined && (field.tagName !== 'SELECT' || [...field.options].some((option) => option.value === draft[id] || option.text === draft[id]))) field.value = draft[id];
+        });
+      } catch (error) {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }
+
     findButton.addEventListener('click', async () => {
       findButton.disabled = true;
-      findButton.textContent = 'finding your match...';
+      findButton.textContent = 'looking for tutors...';
       setStatus(status, '');
       try {
         const result = await api('find-online-tutor', {
@@ -122,34 +217,37 @@
           duration: Number(duration.value),
           note: note.value.trim(),
         });
-        requestId = result.request.id;
-        showMatch(`${result.tutor.name} is online`, `Waiting for ${result.tutor.name} to accept your ${result.request.subject} request. This page updates automatically.`, 'OFFER SENT', { pending: true });
-        stopPolling();
-        pollTimer = setInterval(checkMatch, 4000);
+        beginSearching(result.request);
       } catch (error) {
         setStatus(status, error.message, 'error');
-        findButton.disabled = false;
       } finally {
-        findButton.textContent = 'send request';
+        findButton.textContent = 'request a tutor';
+        findButton.disabled = hasActiveRoom;
       }
     });
 
     document.getElementById('cancelRequest').addEventListener('click', async () => {
-      if (!requestId) return;
-      try {
-        await api('cancel-match-request', { requestId });
-      } catch (error) {
-        setStatus(status, error.message, 'error');
-      }
+      if (!current) return;
+      try { await api('cancel-match-request', { requestId: current.id }); } catch (error) { /* already closed */ }
       await checkMatch();
     });
+
+    document.getElementById('tryAgain').addEventListener('click', () => {
+      setStatus(status, '');
+      showView(null);
+    });
+
+    ['subject', 'helpType', 'duration', 'note'].forEach((id) => document.getElementById(id).addEventListener('input', saveDraft));
 
     (async () => {
       const user = await loadSession();
       if (!user) return;
       setupHeader(user, 'student');
       initFeedback();
+      restoreDraft();
       await refreshRooms();
+      const { request } = await api('my-match-request');
+      if (request && !hasActiveRoom) beginSearching(request);
     })();
   </script>
 </body>

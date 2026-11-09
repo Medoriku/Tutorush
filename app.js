@@ -12,7 +12,7 @@ async function api(action, payload = {}) {
   return data;
 }
 
-async function loadSession() {
+async function loadSession(allowPending = false) {
   const response = await fetch('tutoring-api.php?action=session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -24,6 +24,10 @@ async function loadSession() {
     return null;
   }
   csrfToken = session.csrfToken;
+  if (session.user.approvalStatus === 'pending' && !allowPending) {
+    location.replace('waitlist.html');
+    return null;
+  }
   return session.user;
 }
 
@@ -37,7 +41,12 @@ function setupHeader(user, current) {
     switcher.addEventListener('change', () => { location.href = routes[switcher.value]; });
   }
   const logout = document.getElementById('logout');
-  if (logout) logout.addEventListener('click', () => { location.href = 'login.html'; });
+  if (logout) {
+    logout.addEventListener('click', async () => {
+      try { await api('logout'); } catch (error) { /* leave anyway */ }
+      location.href = 'login.html';
+    });
+  }
 }
 
 function setStatus(element, message, type = '') {

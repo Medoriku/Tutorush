@@ -14,35 +14,33 @@
   <main class="page">
     <p class="eyebrow">Tutor dashboard</p>
     <h1>Help it<br><em>click.</em></h1>
-    <p class="lead">Go online, save your specialties, and receive students who need exactly what you teach.</p>
+    <p class="lead">Pick your subjects, go online, and accept the first student you want. Requests go to every matching tutor, and the first to accept gets the session.</p>
 
     <section class="banner" id="activeBanner" hidden>
       <div><strong>You’re in a study session.</strong><p>You’ll be marked busy until the session ends.</p></div>
       <a class="button yellow" id="activeLink" href="#">open room</a>
     </section>
 
-    <section class="panel row">
+    <section class="go-live" id="goLive">
       <div>
-        <strong><span class="status-dot" id="dot"></span> <span id="state">Offline</span></strong>
+        <h2><span class="pulse-dot"></span><span id="state">Offline</span></h2>
         <p id="stateText">Students cannot find you yet.</p>
       </div>
-      <label class="toggle" title="Go online"><input id="online" type="checkbox"><span></span></label>
+      <label class="toggle" title="Go online"><input id="online" type="checkbox" aria-label="Go online"><span></span></label>
     </section>
 
-    <section class="panel row">
-      <div>
-        <strong>Your subjects</strong>
-        <p>Choose the classes you can teach (hold Cmd/Ctrl to select several).</p>
-        <select id="subjectList" multiple size="7" style="margin-top:.6rem">
-          <option>Calculus 1</option><option>Calculus 3</option><option>Physics</option><option>English</option>
-          <option>Computer Science</option><option>Biology</option><option>General tutoring</option>
-        </select>
-      </div>
-      <button id="saveSubjects" class="green" type="button">save subjects</button>
+    <section class="panel">
+      <strong>Your subjects</strong>
+      <p>Tap the classes you can teach. Changes save automatically and stay saved when you refresh.</p>
+      <div class="chips" id="chips"></div>
+      <p class="status" id="subjectStatus" role="status"></p>
     </section>
 
-    <h2>Incoming student offers</h2>
-    <p class="status" id="status"></p>
+    <div class="row" style="margin-top:1.6rem">
+      <h2 style="margin:0">Incoming student requests</h2>
+      <span class="badge" id="offerCount">0 waiting</span>
+    </div>
+    <p class="status" id="status" role="status"></p>
     <section id="offers"></section>
 
     <section class="panel">
@@ -54,59 +52,146 @@
 
   <script src="app.js"></script>
   <script>
+    const SUBJECTS = ['Calculus 1', 'Calculus 3', 'Physics', 'English', 'Computer Science', 'Biology', 'General tutoring'];
     const status = document.getElementById('status');
+    const subjectStatus = document.getElementById('subjectStatus');
     const toggle = document.getElementById('online');
+    const baseTitle = document.title;
     let availability = 'offline';
+    let selected = new Set();
+    let offers = [];
+    let knownIds = new Set();
+    let actedIds = new Set();
+    let signature = '';
+    let clockOffset = 0;
+    let firstLoad = true;
+    let pollTimer = null;
 
     function renderAvailability() {
       const online = availability === 'online';
       toggle.checked = online;
       toggle.disabled = availability === 'busy';
-      document.getElementById('state').textContent = availability === 'busy' ? 'Busy' : online ? 'Online & accepting' : 'Offline';
+      const card = document.getElementById('goLive');
+      card.className = `go-live ${availability}`;
+      document.getElementById('state').textContent = availability === 'busy' ? 'Busy in a session' : online ? 'You’re online' : 'You’re offline';
       document.getElementById('stateText').textContent = availability === 'busy'
-        ? 'You’re matched with a student. End the session to go online again.'
-        : online ? 'Students can find you now.' : 'Students cannot find you yet.';
-      const dot = document.getElementById('dot');
-      dot.classList.toggle('online', online);
-      dot.classList.toggle('busy', availability === 'busy');
+        ? 'End your session to start receiving requests again.'
+        : online ? 'Keep this page open. New student requests appear below the moment they’re sent.' : 'Go online to start receiving student requests.';
+      if (online && !pollTimer) pollTimer = setInterval(loadOffers, 3000);
+      if (!online && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function renderChips() {
+      const box = document.getElementById('chips');
+      box.replaceChildren();
+      SUBJECTS.forEach((subject) => {
+        const chip = element('button', 'chip', subject);
+        chip.type = 'button';
+        chip.setAttribute('aria-pressed', String(selected.has(subject)));
+        chip.addEventListener('click', () => toggleSubject(subject));
+        box.appendChild(chip);
+      });
+    }
+
+    async function toggleSubject(subject) {
+      const next = new Set(selected);
+      next.has(subject) ? next.delete(subject) : next.add(subject);
+      try {
+        await api('set-tutor-subjects', { subjects: [...next] });
+        selected = next;
+        setStatus(subjectStatus, 'Saved.', 'success');
+        if (selected.size === 0 && availability === 'online') {
+          availability = 'offline';
+          renderAvailability();
+          setStatus(subjectStatus, 'Saved. You were switched offline because no subjects are selected.', '');
+        }
+      } catch (error) {
+        setStatus(subjectStatus, error.message, 'error');
+      }
+      renderChips();
+    }
+
+    function waitingText(offer) {
+      const seconds = Math.max(0, Math.floor((Date.now() + clockOffset - new Date(offer.created_at).getTime()) / 1000));
+      return `waiting ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+
+    function renderOffers(fresh) {
+      const box = document.getElementById('offers');
+      document.getElementById('offerCount').textContent = `${offers.length} waiting`;
+      document.title = offers.length ? `(${offers.length}) ${baseTitle}` : baseTitle;
+      box.replaceChildren();
+      if (!offers.length) {
+        box.appendChild(element('div', 'empty-offers', availability === 'online'
+          ? 'No requests right now. Stay on this page and we’ll alert you when a student needs a subject you teach.'
+          : 'Go online to receive student requests.'));
+        return;
+      }
+      offers.forEach((request) => {
+        const offer = element('article', `offer${fresh.has(request.id) ? ' fresh' : ''}`);
+        const top = element('div', 'offer-top');
+        top.appendChild(element('div', 'avatar sm', request.student_name.trim().charAt(0).toUpperCase()));
+        const who = element('div');
+        who.appendChild(element('strong', '', request.student_name));
+        who.appendChild(element('span', 'meta', `${request.subject} · ${request.duration} minutes`));
+        const wait = element('span', 'waiting', waitingText(request));
+        wait.dataset.requestId = request.id;
+        top.append(who, wait);
+        offer.append(top, element('h3', '', request.help_type), element('span', '', request.note || 'No extra notes.'));
+
+        const buttons = element('div', 'offer-actions');
+        const accept = element('button', 'green', 'accept');
+        const decline = element('button', 'plain', 'decline');
+        accept.type = decline.type = 'button';
+        accept.addEventListener('click', async () => {
+          accept.disabled = decline.disabled = true;
+          actedIds.add(request.id);
+          try {
+            const result = await api('accept-match-request', { requestId: request.id });
+            location.href = `room.html?id=${result.roomId}`;
+          } catch (error) {
+            toast(error.message);
+            await loadOffers();
+          }
+        });
+        decline.addEventListener('click', async () => {
+          actedIds.add(request.id);
+          try { await api('decline-match-request', { requestId: request.id }); } catch (error) { toast(error.message); }
+          await loadOffers();
+        });
+        buttons.append(accept, decline);
+        offer.appendChild(buttons);
+        box.appendChild(offer);
+      });
     }
 
     async function loadOffers() {
-      const box = document.getElementById('offers');
       try {
-        const { requests } = await api('tutor-requests');
-        box.replaceChildren();
-        if (!requests.length) {
-          box.appendChild(element('div', 'offer', 'No pending offers yet. Go online to receive student requests.'));
-          return;
+        const data = await api('tutor-requests');
+        clockOffset = new Date(data.now).getTime() - Date.now();
+        if (data.availabilityStatus !== availability) {
+          availability = data.availabilityStatus;
+          renderAvailability();
         }
-        requests.forEach((request) => {
-          const offer = element('article', 'offer');
-          offer.appendChild(element('span', 'meta', `${request.student_name} · ${request.subject} · ${request.duration} minutes · received ${formatDateTime(request.created_at)}`));
-          offer.appendChild(element('h3', '', request.help_type));
-          offer.appendChild(element('span', '', request.note || 'No extra notes.'));
-          const buttons = element('div', 'offer-actions');
-          const accept = element('button', 'green', 'accept offer');
-          const decline = element('button', 'plain', 'decline');
-          accept.type = decline.type = 'button';
-          accept.onclick = async () => {
-            accept.disabled = decline.disabled = true;
-            try {
-              const result = await api('accept-match-request', { requestId: request.id });
-              location.href = `room.html?id=${result.roomId}`;
-            } catch (error) {
-              setStatus(status, error.message, 'error');
-              loadOffers();
-            }
-          };
-          decline.onclick = async () => {
-            try { await api('decline-match-request', { requestId: request.id }); } catch (error) { setStatus(status, error.message, 'error'); }
-            loadOffers();
-          };
-          buttons.append(accept, decline);
-          offer.appendChild(buttons);
-          box.appendChild(offer);
-        });
+        const ids = new Set(data.requests.map((request) => request.id));
+        const fresh = new Set([...ids].filter((id) => !knownIds.has(id)));
+        if (!firstLoad) {
+          if (fresh.size) {
+            playTone('message');
+            toast(`New request: ${data.requests.find((request) => fresh.has(request.id)).subject}`);
+          }
+          const taken = [...knownIds].filter((id) => !ids.has(id) && !actedIds.has(id));
+          if (taken.length) toast('A request was taken by another tutor or cancelled.');
+        }
+        knownIds = ids;
+        firstLoad = false;
+        const next = `${availability}|${data.requests.map((request) => request.id).join(',')}`;
+        offers = data.requests;
+        if (next !== signature || fresh.size) {
+          signature = next;
+          renderOffers(fresh);
+        }
+        setStatus(status, '');
       } catch (error) {
         setStatus(status, error.message, 'error');
       }
@@ -131,21 +216,20 @@
       try {
         const result = await api('set-tutor-status', { online: toggle.checked });
         availability = result.status;
+        if (availability === 'online') { signature = ''; await loadOffers(); }
       } catch (error) {
         setStatus(status, error.message, 'error');
       }
       renderAvailability();
+      if (availability !== 'online') { offers = []; renderOffers(new Set()); }
     });
 
-    document.getElementById('saveSubjects').addEventListener('click', async () => {
-      const subjects = [...document.getElementById('subjectList').selectedOptions].map((option) => option.value);
-      try {
-        await api('set-tutor-subjects', { subjects });
-        setStatus(status, 'Subjects saved.', 'success');
-      } catch (error) {
-        setStatus(status, error.message, 'error');
-      }
-    });
+    setInterval(() => {
+      document.querySelectorAll('.waiting').forEach((chip) => {
+        const offer = offers.find((request) => String(request.id) === chip.dataset.requestId);
+        if (offer) chip.textContent = waitingText(offer);
+      });
+    }, 1000);
 
     (async () => {
       const user = await loadSession();
@@ -153,11 +237,12 @@
       setupHeader(user, 'tutor');
       initFeedback();
       availability = user.availabilityStatus || 'offline';
-      [...document.getElementById('subjectList').options].forEach((option) => { option.selected = (user.subjects || []).includes(option.value); });
+      selected = new Set(user.subjects || []);
+      renderChips();
       renderAvailability();
       await refreshRooms();
       await loadOffers();
-      setInterval(() => { if (availability === 'online') loadOffers(); }, 5000);
+      renderOffers(new Set());
     })();
   </script>
 </body>
