@@ -221,3 +221,8 @@ textarea { min-height: 5.5rem; resize: vertical; }
 button.schedule-day { position: relative; width: 100%; aspect-ratio: 1; padding: 0; border-radius: .4rem; box-shadow: none; background: #fff; }
 button.schedule-day.has-events::after { content: ''; position: absolute; width: .3rem; height: .3rem; border-radius: 50%; background: #28683b; bottom: .2rem; left: calc(50% - .15rem); }
 button.schedule-day.selected { background: var(--yellow); }
+.schedule-item { margin-top: .6rem; flex-wrap: wrap; }
+.schedule-item-details { min-width: 0; overflow-wrap: anywhere; }
+.schedule-item-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+#slotForm > * { min-width: 0; }
+#slotStart { width: 100%; min-width: 0; }

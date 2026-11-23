@@ -19,11 +19,11 @@ function initSchedule(user, view) {
     const previous = element('button', 'plain', '‹');
     previous.type = 'button';
     previous.setAttribute('aria-label', 'Previous month');
-    previous.addEventListener('click', () => { month = new Date(month.getFullYear(), month.getMonth() - 1, 1); render(); });
+    previous.addEventListener('click', () => { month = new Date(month.getFullYear(), month.getMonth() - 1, 1); selectedDate = ''; render(); });
     const next = element('button', 'plain', '›');
     next.type = 'button';
     next.setAttribute('aria-label', 'Next month');
-    next.addEventListener('click', () => { month = new Date(month.getFullYear(), month.getMonth() + 1, 1); render(); });
+    next.addEventListener('click', () => { month = new Date(month.getFullYear(), month.getMonth() + 1, 1); selectedDate = ''; render(); });
     header.append(previous, element('strong', '', month.toLocaleDateString([], { month: 'long', year: 'numeric' })), next);
     const grid = element('div', 'schedule-calendar-grid');
     ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((day) => grid.appendChild(element('small', '', day)));
@@ -44,8 +44,9 @@ function initSchedule(user, view) {
   }
 
   function makeRow(slot, own) {
-    const row = element('div', 'room-item');
-    const details = element('div');
+    const row = element('div', 'room-item schedule-item');
+    const details = element('div', 'schedule-item-details');
+    const actions = element('div', 'schedule-item-actions');
     const date = new Date(slot.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
     details.appendChild(element('strong', '', `${date} · ${slot.duration} min`));
     details.appendChild(element('small', '', slot.status === 'cancelled' ? `Cancelled${slot.subject ? ` · ${slot.subject}` : ''}` : slot.status === 'booked'
@@ -54,7 +55,7 @@ function initSchedule(user, view) {
     const button = element('button', own ? 'plain' : 'green', own ? 'cancel' : 'book');
     button.type = 'button';
     button.addEventListener('click', async () => {
-      if (own && !confirm('Cancel this time? Both participants will no longer see the session.')) return;
+      if (own && !confirm('Cancel this time? Both participants will see it as cancelled.')) return;
       button.disabled = true;
       try {
         const result = await api(own ? 'schedule-cancel' : 'schedule-book', own ? { slotId: slot.id } : { slotId: slot.id, subject: subject.value });
@@ -66,7 +67,7 @@ function initSchedule(user, view) {
       }
     });
     row.appendChild(details);
-    if (slot.status !== 'cancelled') row.appendChild(button);
+    if (slot.status !== 'cancelled') actions.appendChild(button);
     if (own && slot.status === 'booked') {
       const enter = element('button', 'green', 'enter room');
       enter.type = 'button';
@@ -82,8 +83,9 @@ function initSchedule(user, view) {
           enter.disabled = false;
         }
       });
-      row.appendChild(enter);
+      actions.appendChild(enter);
     }
+    if (actions.hasChildNodes()) row.appendChild(actions);
     return row;
   }
 
