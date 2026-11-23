@@ -225,4 +225,8 @@ button.schedule-day.selected { background: var(--yellow); }
 .schedule-item-details { min-width: 0; overflow-wrap: anywhere; }
 .schedule-item-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 #slotForm > * { min-width: 0; }
-#slotStart { width: 100%; min-width: 0; }
+#slotStart, #slotEnd { width: 100%; min-width: 0; }
+.schedule-booking { display: grid; gap: .5rem; width: min(100%, 22rem); }
+.schedule-booking label { font-size: .8rem; font-weight: 700; }
+.schedule-booking select { width: 100%; min-width: 0; }
+button.schedule-day:disabled { opacity: .35; }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Student Dashboard | TutorRush</title>
-  <link rel="stylesheet" href="app.css?v=20261123">
+  <link rel="stylesheet" href="app.css?v=20261124">
 </head>
 <body>
   <header class="top">
@@ -66,7 +66,7 @@
       </div>
     </section>
 
-    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Book a planned session</h3><label for="scheduleSubject">Subject</label><select id="scheduleSubject"></select><div id="availableSlots"></div></section>
+    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Book a planned session</h3><p>Choose a tutor's availability and book at least two hours ahead.</p><label for="scheduleSubject">Subject</label><select id="scheduleSubject"></select><div id="availableSlots"></div></section>
     <section class="panel">
       <h2>Your study rooms</h2>
       <p>Rooms stay here after a session ends so you can look back at the chat and files.</p>
@@ -75,7 +75,7 @@
   </main>
 
   <script src="app.js?v=20261123"></script>
-  <script src="schedule.js?v=20261123"></script>
+  <script src="schedule.js?v=20261124"></script>
   <script>
     const DRAFT_KEY = 'tutorrush-student-draft';
     const status = document.getElementById('status');
@@ -246,6 +246,9 @@
       if (!user) return;
       setupHeader(user, 'student');
       initFeedback();
+      if (new URLSearchParams(location.search).get('access') === 'tutor') {
+        setStatus(status, 'Your account is registered as a student. Ask an admin to grant tutor or student + tutor access.', 'error');
+      }
       initSchedule(user, 'student');
       document.getElementById('subject').replaceChildren(...user.availableSubjects.map((subject) => new Option(subject, subject)));
       restoreDraft();

@@ -345,7 +345,7 @@ function requireApprovedUser(PDO $database): int {
 
 // Tutors count as reachable only while they are online and their open dashboard keeps checking in.
 function availableTutorIds(PDO $database, string $subject, int $excludeUserId, ?int $requestId = null): array {
-    $sql = "SELECT id, tutor_subjects FROM users WHERE id != ? AND availability_status = 'online' AND role IN ('tutor', 'both') AND approval_status = 'approved' AND last_seen_at >= datetime('now', ?)";
+    $sql = "SELECT id, tutor_subjects FROM users WHERE id != ? AND availability_status = 'online' AND role IN ('tutor', 'both', 'admin') AND (approval_status = 'approved' OR role = 'admin') AND last_seen_at >= datetime('now', ?)";
     $params = [$excludeUserId, '-' . TUTOR_HEARTBEAT_SECONDS . ' seconds'];
     if ($requestId !== null) {
         $sql .= ' AND NOT EXISTS (SELECT 1 FROM match_declines d WHERE d.request_id = ? AND d.tutor_id = users.id)';
@@ -857,6 +857,7 @@ try {
     $database->exec('CREATE INDEX IF NOT EXISTS idx_planned_slots_start ON planned_slots(start_at, status)');
     $slotColumns = array_column($database->query('PRAGMA table_info(planned_slots)')->fetchAll(PDO::FETCH_ASSOC), 'name');
     if (!in_array('room_id', $slotColumns, true)) $database->exec('ALTER TABLE planned_slots ADD COLUMN room_id INTEGER');
+    if (!in_array('window_id', $slotColumns, true)) $database->exec('ALTER TABLE planned_slots ADD COLUMN window_id INTEGER');
 
     $action = $_GET['action'] ?? '';
     if (in_array($action, ['google-start', 'google-callback'], true)) {
@@ -1036,9 +1037,8 @@ try {
         $userStatement->execute([$userId]);
         $tutorRow = $userStatement->fetch(PDO::FETCH_ASSOC);
         $role = $tutorRow['role'] ?? null;
-        if (!in_array($role, ['tutor', 'both', 'admin'], true) || $status === null) {
-            respond(403, ['error' => 'Tutor access is required.']);
-        }
+        if (!in_array($role, ['tutor', 'both', 'admin'], true)) respond(403, ['error' => 'Your account needs the tutor or student + tutor role. Contact an admin to update it.']);
+        if ($status === null) respond(422, ['error' => 'Choose whether to go online or offline.']);
         if ($status && activeRoomId($database, $userId) !== null) {
             respond(409, ['error' => 'End your active study session before going online.']);
         }
@@ -1059,8 +1059,8 @@ try {
         $allowedQuery = $database->prepare('SELECT role, approved_tutor_subjects FROM users WHERE id = ?');
         $allowedQuery->execute([$userId]);
         $allowedUser = $allowedQuery->fetch(PDO::FETCH_ASSOC);
-        if (!in_array($allowedUser['role'], ['tutor', 'both'], true)) respond(403, ['error' => 'Tutor access is required.']);
-        $allowedSubjects = json_decode((string) $allowedUser['approved_tutor_subjects'], true) ?: [];
+        if (!in_array($allowedUser['role'], ['tutor', 'both', 'admin'], true)) respond(403, ['error' => 'Your account needs the tutor or student + tutor role. Contact an admin to update it.']);
+        $allowedSubjects = $allowedUser['role'] === 'admin' ? TUTOR_SUBJECTS : (json_decode((string) $allowedUser['approved_tutor_subjects'], true) ?: []);
         if (array_diff($subjects, $allowedSubjects)) respond(403, ['error' => 'Only subjects approved in your application can be selected. Contact an admin to request additional subjects.']);
         $statement = $database->prepare('UPDATE users SET tutor_subjects = ?, availability_status = CASE WHEN ? = 0 AND availability_status = \'online\' THEN \'offline\' ELSE availability_status END, is_online = CASE WHEN ? = 0 AND availability_status = \'online\' THEN 0 ELSE is_online END WHERE id = ?');
         $statement->execute([json_encode($subjects, JSON_UNESCAPED_UNICODE), count($subjects), count($subjects), $userId]);
@@ -1337,9 +1337,16 @@ try {
         $scheduleUser = $userQuery->fetch(PDO::FETCH_ASSOC);
         $role = $scheduleUser['role'];
         if ($action === 'schedule-list') {
-            $query = $database->prepare("SELECT p.id, p.tutor_id, p.student_id, p.start_at, p.duration, p.subject, p.status, p.room_id, t.name AS tutor_name, t.tutor_subjects, s.name AS student_name FROM planned_slots p JOIN users t ON t.id = p.tutor_id LEFT JOIN users s ON s.id = p.student_id WHERE p.start_at + p.duration * 60 > CAST(? AS INTEGER) AND ((p.tutor_id = ? AND p.status IN ('open', 'booked', 'cancelled')) OR (p.student_id = ? AND p.status IN ('booked', 'cancelled')) OR (p.status = 'open' AND p.tutor_id != ? AND t.approval_status = 'approved')) ORDER BY p.start_at LIMIT 300");
+            $query = $database->prepare("SELECT p.id, p.tutor_id, p.student_id, p.start_at, p.duration, p.subject, p.status, p.room_id, p.window_id, t.name AS tutor_name, t.tutor_subjects, s.name AS student_name FROM planned_slots p JOIN users t ON t.id = p.tutor_id LEFT JOIN users s ON s.id = p.student_id WHERE p.start_at + p.duration * 60 > CAST(? AS INTEGER) AND ((p.tutor_id = ? AND p.status IN ('open', 'booked', 'cancelled')) OR (p.student_id = ? AND p.status IN ('booked', 'cancelled')) OR (p.status = 'open' AND p.tutor_id != ? AND (t.approval_status = 'approved' OR t.role = 'admin'))) ORDER BY p.start_at LIMIT 300");
             $query->execute([time(), $userId, $userId, $userId]);
-            $slots = array_map(static fn(array $slot): array => [
+            $busyQuery = $database->prepare("SELECT start_at, duration FROM planned_slots WHERE tutor_id = ? AND status = 'booked' AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
+            $slots = array_map(static function (array $slot) use ($busyQuery): array {
+                $busy = [];
+                if ($slot['status'] === 'open') {
+                    $busyQuery->execute([(int) $slot['tutor_id'], (int) $slot['start_at'] + (int) $slot['duration'] * 60, (int) $slot['start_at']]);
+                    $busy = array_map(static fn(array $entry): array => ['startsAt' => gmdate('Y-m-d\TH:i:s\Z', (int) $entry['start_at']), 'duration' => (int) $entry['duration']], $busyQuery->fetchAll(PDO::FETCH_ASSOC));
+                }
+                return [
                 'id' => (int) $slot['id'], 'tutorId' => (int) $slot['tutor_id'],
                 'studentId' => $slot['student_id'] === null ? null : (int) $slot['student_id'],
                 'startsAt' => gmdate('Y-m-d\TH:i:s\Z', (int) $slot['start_at']),
@@ -1347,18 +1354,21 @@ try {
                 'status' => $slot['status'], 'tutorName' => $slot['tutor_name'],
                 'roomId' => $slot['room_id'] === null ? null : (int) $slot['room_id'],
                 'studentName' => $slot['student_name'], 'subjects' => json_decode((string) $slot['tutor_subjects'], true) ?: [],
-            ], $query->fetchAll(PDO::FETCH_ASSOC));
-            respond(200, ['slots' => $slots]);
+                'busy' => $busy,
+                ];
+            }, $query->fetchAll(PDO::FETCH_ASSOC));
+            respond(200, ['slots' => $slots, 'now' => gmdate('Y-m-d\TH:i:s\Z')]);
         }
         if ($action === 'schedule-add') {
-            if (!in_array($role, ['tutor', 'both'], true)) respond(403, ['error' => 'Tutor access is required.']);
+            if (!in_array($role, ['tutor', 'both', 'admin'], true)) respond(403, ['error' => 'Your account needs the tutor or student + tutor role. Contact an admin to update it.']);
             $startsAt = strtotime((string) ($request['startsAt'] ?? ''));
-            $duration = filter_var($request['duration'] ?? null, FILTER_VALIDATE_INT);
-            if (!$startsAt || $startsAt < time() + 300 || $startsAt > time() + 366 * 86400 || !in_array($duration, [30, 60, 90, 120], true)) respond(422, ['error' => 'Choose a future time and a valid duration.']);
+            $endsAt = strtotime((string) ($request['endsAt'] ?? ''));
+            if (!$startsAt || !$endsAt || $startsAt <= time() || $startsAt > time() + 366 * 86400 || $endsAt <= time() + 7200 || $endsAt - $startsAt < 1800 || $endsAt - $startsAt > 12 * 3600 || ($endsAt - $startsAt) % 60 !== 0) respond(422, ['error' => 'Choose a future availability window of 30 minutes to 12 hours that extends at least two hours from now.']);
+            $duration = (int) (($endsAt - $startsAt) / 60);
             if (!json_decode((string) $scheduleUser['tutor_subjects'], true)) respond(422, ['error' => 'Choose your teaching subjects first.']);
             $database->exec('BEGIN IMMEDIATE');
-            $overlap = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE tutor_id = ? AND status IN ('open', 'booked') AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
-            $overlap->execute([$userId, $startsAt + $duration * 60, $startsAt]);
+            $overlap = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE (tutor_id = ? OR (student_id = ? AND status = 'booked')) AND status IN ('open', 'booked') AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
+            $overlap->execute([$userId, $userId, $startsAt + $duration * 60, $startsAt]);
             if ((int) $overlap->fetchColumn()) { $database->exec('ROLLBACK'); respond(409, ['error' => 'This time overlaps another availability or session.']); }
             $database->prepare('INSERT INTO planned_slots (tutor_id, start_at, duration) VALUES (?, ?, ?)')->execute([$userId, $startsAt, $duration]);
             $database->exec('COMMIT');
@@ -1385,23 +1395,31 @@ try {
             respond(200, ['roomId' => (int) $slot['room_id']]);
         }
         if ($action === 'schedule-book') {
-            if (!in_array($role, ['student', 'both'], true)) respond(403, ['error' => 'Student access is required.']);
+            if (!in_array($role, ['student', 'both', 'admin'], true)) respond(403, ['error' => 'Student access is required.']);
             $subject = validateText($request['subject'] ?? '', 80, 'Subject');
+            $startsAt = strtotime((string) ($request['startsAt'] ?? ''));
+            $duration = filter_var($request['duration'] ?? null, FILTER_VALIDATE_INT);
+            if (!$startsAt || $startsAt < time() + 7200 || !in_array($duration, [30, 60, 90, 120], true)) respond(422, ['error' => 'Choose a valid session at least two hours from now.']);
             $database->exec('BEGIN IMMEDIATE');
-            $query = $database->prepare("SELECT p.*, u.tutor_subjects FROM planned_slots p JOIN users u ON u.id = p.tutor_id WHERE p.id = ? AND p.status = 'open' AND p.start_at > ? AND u.approval_status = 'approved'");
-            $query->execute([$slotId, time()]);
+            $query = $database->prepare("SELECT p.*, u.tutor_subjects FROM planned_slots p JOIN users u ON u.id = p.tutor_id WHERE p.id = ? AND p.status = 'open' AND (u.approval_status = 'approved' OR u.role = 'admin')");
+            $query->execute([$slotId]);
             $slot = $query->fetch(PDO::FETCH_ASSOC);
-            if (!$slot || (int) $slot['tutor_id'] === $userId || !in_array($subject, json_decode((string) ($slot['tutor_subjects'] ?? ''), true) ?: [], true)) { $database->exec('ROLLBACK'); respond(409, ['error' => 'This time or subject is no longer available.']); }
-            $overlap = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE status = 'booked' AND (student_id = ? OR tutor_id = ?) AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
-            $overlap->execute([$userId, $userId, (int) $slot['start_at'] + (int) $slot['duration'] * 60, (int) $slot['start_at']]);
+            if (!$slot || (int) $slot['tutor_id'] === $userId || $startsAt < (int) $slot['start_at'] || $startsAt + $duration * 60 > (int) $slot['start_at'] + (int) $slot['duration'] * 60 || ($startsAt - (int) $slot['start_at']) % 1800 !== 0 || !in_array($subject, json_decode((string) ($slot['tutor_subjects'] ?? ''), true) ?: [], true)) { $database->exec('ROLLBACK'); respond(409, ['error' => 'This time or subject is no longer available.']); }
+            $overlap = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE status = 'booked' AND (student_id = ? OR tutor_id = ? OR tutor_id = ?) AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
+            $overlap->execute([$userId, $userId, (int) $slot['tutor_id'], $startsAt + $duration * 60, $startsAt]);
             if ((int) $overlap->fetchColumn()) { $database->exec('ROLLBACK'); respond(409, ['error' => 'You already have a session at this time.']); }
-            $database->prepare("UPDATE planned_slots SET student_id = ?, subject = ?, status = 'booked' WHERE id = ? AND status = 'open'")->execute([$userId, $subject, $slotId]);
+            $database->prepare("INSERT INTO planned_slots (tutor_id, student_id, start_at, duration, subject, status, window_id) VALUES (?, ?, ?, ?, ?, 'booked', ?)")->execute([$slot['tutor_id'], $userId, $startsAt, $duration, $subject, $slotId]);
             $database->exec('COMMIT');
             respond(200, ['message' => 'Session booked.']);
         }
-        $query = $database->prepare("UPDATE planned_slots SET status = 'cancelled' WHERE id = ? AND (tutor_id = ? OR student_id = ?) AND status IN ('open', 'booked') AND start_at > ?");
-        $query->execute([$slotId, $userId, $userId, time()]);
-        if (!$query->rowCount()) respond(404, ['error' => 'This session is no longer available to cancel.']);
+        $database->exec('BEGIN IMMEDIATE');
+        $childQuery = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE window_id = ? AND status = 'booked' AND start_at + duration * 60 > CAST(? AS INTEGER)");
+        $childQuery->execute([$slotId, time()]);
+        if ((int) $childQuery->fetchColumn()) { $database->exec('ROLLBACK'); respond(409, ['error' => 'Cancel the booked sessions in this window before removing your availability.']); }
+        $query = $database->prepare("UPDATE planned_slots SET status = 'cancelled' WHERE id = ? AND (tutor_id = ? OR student_id = ?) AND ((status = 'open' AND start_at + duration * 60 > CAST(? AS INTEGER)) OR (status = 'booked' AND start_at > ?))");
+        $query->execute([$slotId, $userId, $userId, time(), time()]);
+        if (!$query->rowCount()) { $database->exec('ROLLBACK'); respond(404, ['error' => 'This session is no longer available to cancel.']); }
+        $database->exec('COMMIT');
         respond(200, ['message' => 'Cancelled.']);
     }
 
@@ -1498,6 +1516,7 @@ try {
         $summary = [
             'users' => (int) $database->query('SELECT COUNT(*) FROM users')->fetchColumn(),
             'bookings' => (int) $database->query('SELECT COUNT(*) FROM bookings')->fetchColumn(),
+            'plannedSessions' => (int) $database->query("SELECT COUNT(*) FROM planned_slots WHERE status = 'booked'")->fetchColumn(),
             'messages' => (int) $database->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
         ];
         $recentBookings = $database->query('SELECT b.tutor_name, b.mode, b.status, b.scheduled_for, u.name AS student_name FROM bookings b JOIN users u ON u.id = b.student_id ORDER BY b.id DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);

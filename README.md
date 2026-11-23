@@ -33,6 +33,10 @@ New Google accounts use the selected role on the sign-up page (student by defaul
 
 `diyoradaminovaz.m@gmail.com` is automatically assigned the `admin` role. Sign in with that email to view the Tutor Portal's Operations panel.
 
+## Planned sessions
+
+Tutors post availability windows in their local time; students choose a session within an available window at least two hours ahead. Times are stored in UTC and shown in each viewer's local time. Each person can cancel a future session; both see the cancellation on their calendars. Booking and cancellation email notifications are not currently sent.
+
 ## Security notes
 
 - Do not upload a development `tutorrush.sqlite` database to a public site unless you intend to migrate its accounts and data.

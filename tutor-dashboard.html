@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Tutor Dashboard | TutorRush</title>
-  <link rel="stylesheet" href="app.css?v=20261123">
+  <link rel="stylesheet" href="app.css?v=20261124">
 </head>
 <body>
   <header class="top">
@@ -43,7 +43,7 @@
     <p class="status" id="status" role="status"></p>
     <section id="offers"></section>
 
-    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Add availability</h3><form id="slotForm" class="form-grid"><div class="field"><label for="slotStart">Date and time</label><input id="slotStart" type="datetime-local" required></div><div class="field"><label for="slotDuration">Duration</label><select id="slotDuration"><option value="30">30 minutes</option><option value="60">60 minutes</option><option value="90">90 minutes</option><option value="120">120 minutes</option></select></div><div><button class="green" type="submit">add time</button></div></form></section>
+    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Add availability</h3><p>Choose when your free time starts and ends. Students can book sessions at least two hours ahead.</p><form id="slotForm" class="form-grid"><div class="field"><label for="slotStart">Available from</label><input id="slotStart" type="datetime-local" required></div><div class="field"><label for="slotEnd">Available until</label><input id="slotEnd" type="datetime-local" required></div><div><button class="green" type="submit">add availability</button></div></form></section>
     <section class="panel">
       <h2>Your study rooms</h2>
       <p>Rooms stay here after a session ends so you can look back at the chat and files.</p>
@@ -52,7 +52,7 @@
   </main>
 
   <script src="app.js?v=20261123"></script>
-  <script src="schedule.js?v=20261123"></script>
+  <script src="schedule.js?v=20261124"></script>
   <script>
     let SUBJECTS = [];
     const status = document.getElementById('status');
@@ -236,11 +236,15 @@
     (async () => {
       const user = await loadSession();
       if (!user) return;
+      if (!['tutor', 'both', 'admin'].includes(user.role)) {
+        location.replace('student-dashboard.html?access=tutor');
+        return;
+      }
       setupHeader(user, 'tutor');
       initFeedback();
       initSchedule(user, 'tutor');
       availability = user.availabilityStatus || 'offline';
-      SUBJECTS = user.approvedSubjects;
+      SUBJECTS = user.role === 'admin' ? user.availableSubjects : user.approvedSubjects;
       selected = new Set(user.subjects || []);
       renderChips();
       renderAvailability();

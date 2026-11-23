@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Admin Dashboard | TutorRush</title>
-  <link rel="stylesheet" href="app.css?v=20261123">
+  <link rel="stylesheet" href="app.css?v=20261124">
   <style>
-    main.page { width: min(100% - 2.5rem, 1120px); }
+    main.page { width: calc(100% - 2.5rem); max-width: 1800px; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
     .stat { display: block; width: 100%; padding: 1.1rem; text-align: left; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; box-shadow: .2rem .2rem 0 var(--ink); }
     .stat span { display: block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
@@ -17,6 +17,14 @@
     .toolbar input { flex: 1; min-width: 14rem; }
     .toolbar select { min-width: 13rem; }
     .table-wrap { overflow-x: auto; margin-top: 1rem; border: 1px solid var(--ink); border-radius: 1.2rem; background: #fff; box-shadow: .25rem .25rem 0 var(--ink); }
+    .users-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 2rem; }
+    .users-heading h2 { margin: 0; }
+    #usersSection:fullscreen, #usersSection.expanded { background: #f8f4fc; overflow: auto; padding: 1rem; }
+    #usersSection.expanded:not(:fullscreen) { position: fixed; inset: 0; z-index: 200; }
+    body.users-expanded { overflow: hidden; }
+    #usersSection:fullscreen .table-wrap, #usersSection.expanded .table-wrap { max-height: calc(100vh - 12rem); overflow: auto; }
+    #usersSection:fullscreen th, #usersSection.expanded th { position: sticky; top: 0; z-index: 1; }
+    .expand-users { min-width: 2.6rem; padding: .5rem; font-size: 1.2rem; }
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: .8rem 1rem; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
     th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; background: #f6ebff; }
@@ -51,14 +59,15 @@
       <button class="stat" type="button" data-filter="tutor"><span>Tutors</span><strong id="countTutor">-</strong></button>
       <button class="stat" type="button" data-filter="waitlist"><span>Waitlist</span><strong id="countWaitlist">-</strong></button>
       <button class="stat" type="button" data-filter="admin"><span>Admins</span><strong id="countAdmin">-</strong></button>
-      <div class="stat static"><span>Bookings</span><strong id="bookingCount">-</strong></div>
-      <div class="stat static"><span>Messages</span><strong id="messageCount">-</strong></div>
+      <div class="stat static"><span>Planned sessions</span><strong id="bookingCount">-</strong></div>
       <a class="stat static" href="#feedback" style="text-decoration:none;color:inherit"><span>Open feedback</span><strong id="feedbackOpenCount">-</strong></a>
     </section>
     <p id="bothNote" style="font-size:.85rem"></p>
 
-    <section class="toolbar">
-      <input id="search" type="search" placeholder="Search by name or email..." aria-label="Search accounts">
+    <section id="usersSection">
+    <div class="users-heading"><h2>Accounts</h2><button id="expandUsers" class="plain expand-users" type="button" title="Expand accounts" aria-label="Expand accounts">⛶</button></div>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search name, email, school or subject" aria-label="Search accounts">
       <select id="roleFilter" aria-label="Filter by role">
         <option value="all">All accounts</option>
         <option value="student">Students (incl. both)</option>
@@ -70,15 +79,16 @@
       </select>
       <select id="subjectFilter" aria-label="Filter by subject"><option value="">All subjects</option></select>
       <button id="approveAll" class="green" type="button" hidden>approve all confirmed on waitlist</button>
-    </section>
+    </div>
     <p class="status" id="status" role="status"></p>
 
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>School &amp; study</th><th>Topic specialties</th><th>Access</th><th>Joined</th><th>Change role</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>School &amp; study</th><th>Subjects</th><th>Access</th><th>Signed up</th><th>Change role</th><th></th></tr></thead>
         <tbody id="usersBody"></tbody>
       </table>
     </div>
+    </section>
 
     <section id="feedback" style="margin-top:2.5rem">
       <div class="row">
@@ -246,7 +256,10 @@
         const schoolCell = element('td');
         schoolCell.appendChild(element('div', '', user.school || '\u2014'));
         if (user.field_of_study) schoolCell.appendChild(element('small', '', user.field_of_study));
-        const subjectsCell = element('td', '', [...(user.subjects || []), ...(user.studySubjects || [])].join(', ') || '\u2014');
+        const subjectsCell = element('td');
+        if ((user.subjects || []).length) subjectsCell.appendChild(element('div', '', `Teaches: ${user.subjects.join(', ')}`));
+        if ((user.studySubjects || []).length) subjectsCell.appendChild(element('div', '', `Studies: ${user.studySubjects.join(', ')}`));
+        if (!subjectsCell.hasChildNodes()) subjectsCell.textContent = '\u2014';
         subjectsCell.style.whiteSpace = 'normal';
         subjectsCell.style.minWidth = '10rem';
         row.append(nameCell, element('td', '', user.email), element('td', '', user.role), schoolCell, subjectsCell, accessCell, element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
@@ -291,13 +304,36 @@
     async function loadUsers() {
       const data = await api('admin-dashboard');
       users = data.users;
-      document.getElementById('bookingCount').textContent = data.summary.bookings;
-      document.getElementById('messageCount').textContent = data.summary.messages;
+      document.getElementById('bookingCount').textContent = data.summary.plannedSessions;
       renderCounts();
       renderUsers();
     }
 
     const $ = (id) => document.getElementById(id);
+    const usersSection = $('usersSection');
+    const expandUsers = $('expandUsers');
+    function setUsersExpanded(expanded) {
+      usersSection.classList.toggle('expanded', expanded);
+      document.body.classList.toggle('users-expanded', expanded);
+      expandUsers.textContent = expanded ? '×' : '⛶';
+      expandUsers.title = expanded ? 'Close full-screen accounts' : 'Expand accounts';
+      expandUsers.setAttribute('aria-label', expandUsers.title);
+    }
+    expandUsers.addEventListener('click', async () => {
+      if (usersSection.classList.contains('expanded')) {
+        if (document.fullscreenElement === usersSection) await document.exitFullscreen();
+        setUsersExpanded(false);
+      } else {
+        setUsersExpanded(true);
+        if (usersSection.requestFullscreen) await usersSection.requestFullscreen().catch(() => {});
+      }
+    });
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement !== usersSection && usersSection.classList.contains('expanded')) setUsersExpanded(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !document.fullscreenElement) setUsersExpanded(false);
+    });
     const CATEGORY_LABELS = { bug: 'Something broken', video: 'Video call', chat: 'Chat', files: 'Files', suggestion: 'Suggestion', other: 'Other' };
     let reports = [];
 
