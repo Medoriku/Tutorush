@@ -41,12 +41,16 @@
     .report.resolved { opacity: .7; }
     .report .meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; font-size: .78rem; font-weight: 700; }
     .report p { margin: .6rem 0; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .major-metrics { margin-top: 2rem; }
+    .major-metrics h2 { margin: 0; }
+    .major-metrics .table-wrap { max-height: 20rem; overflow: auto; }
+    .major-metrics th { position: sticky; top: 0; }
   </style>
 </head>
 <body>
   <header class="top">
     <a class="brand" href="admin-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a>
-    <div class="actions"><select id="viewSwitcher" aria-label="Dashboard view"></select><button id="logout" type="button">log out</button></div>
+    <div class="actions"><a class="button green" href="admin-review.html">review applications</a><select id="viewSwitcher" aria-label="Dashboard view"></select><button id="logout" type="button">log out</button></div>
   </header>
   <main class="page">
     <p class="eyebrow">Admin dashboard</p>
@@ -64,6 +68,12 @@
     </section>
     <p id="bothNote" style="font-size:.85rem"></p>
 
+    <section class="major-metrics" aria-labelledby="majorHeading">
+      <h2 id="majorHeading">Majors by role</h2>
+      <p>Student and tutor totals include accounts with both roles.</p>
+      <div class="table-wrap"><table><thead><tr><th>Major</th><th>Accounts</th><th>Students</th><th>Tutors</th><th>Both</th></tr></thead><tbody id="majorMetrics"></tbody></table></div>
+    </section>
+
     <section id="usersSection">
     <div class="users-heading"><h2>Accounts</h2><button id="expandUsers" class="plain expand-users" type="button" title="Expand accounts" aria-label="Expand accounts">⛶</button></div>
     <div class="toolbar">
@@ -78,7 +88,7 @@
         <option value="approved">Approved only</option>
       </select>
       <select id="subjectFilter" aria-label="Filter by subject"><option value="">All subjects</option></select>
-      <button id="approveAll" class="green" type="button" hidden>approve all confirmed on waitlist</button>
+      <select id="majorFilter" aria-label="Filter by major"><option value="">All majors</option></select>
     </div>
     <p class="status" id="status" role="status"></p>
 
@@ -129,9 +139,41 @@
       document.getElementById('countAdmin').textContent = count('admin');
       const waiting = count('waitlist');
       document.getElementById('countWaitlist').textContent = waiting;
-      document.getElementById('approveAll').hidden = !users.some((user) => user.approval_status === 'pending' && user.email_verified_at);
       const both = count('both');
       document.getElementById('bothNote').textContent = both ? `${both} account${both === 1 ? '' : 's'} with both roles count as a student and a tutor.` : '';
+    }
+
+    function renderMajors() {
+      const groups = new Map();
+      users.filter((user) => user.role !== 'admin').forEach((user) => {
+        const label = (user.field_of_study || '').trim() || 'Not provided';
+        const key = label.toLocaleLowerCase();
+        if (!groups.has(key)) groups.set(key, { label, accounts: 0, students: 0, tutors: 0, both: 0 });
+        const group = groups.get(key);
+        group.accounts++;
+        if (['student', 'both'].includes(user.role)) group.students++;
+        if (['tutor', 'both'].includes(user.role)) group.tutors++;
+        if (user.role === 'both') group.both++;
+      });
+      const filter = document.getElementById('majorFilter');
+      const selected = filter.value;
+      filter.replaceChildren(new Option('All majors', ''));
+      const table = document.getElementById('majorMetrics');
+      table.replaceChildren();
+      [...groups.entries()].sort((first, second) => first[1].label.localeCompare(second[1].label)).forEach(([key, group]) => {
+        filter.add(new Option(group.label, key));
+        const row = element('tr');
+        [group.label, group.accounts, group.students, group.tutors, group.both].forEach((value) => row.appendChild(element('td', '', String(value))));
+        table.appendChild(row);
+      });
+      filter.value = selected;
+      if (!groups.size) {
+        const row = element('tr');
+        const cell = element('td', 'empty', 'No student or tutor accounts yet.');
+        cell.colSpan = 5;
+        row.appendChild(cell);
+        table.appendChild(row);
+      }
     }
 
     async function downloadDocument(doc) {
@@ -193,7 +235,8 @@
       const term = search.value.trim().toLowerCase();
       document.querySelectorAll('.stat[data-filter]').forEach((card) => card.classList.toggle('current', card.dataset.filter === filter));
       const selectedSubject = document.getElementById('subjectFilter').value;
-      const visible = users.filter((user) => matchesRole(user, filter) && (!selectedSubject || [...(user.subjects || []), ...(user.studySubjects || [])].includes(selectedSubject)) && (!term || [user.name, user.email, user.school, user.field_of_study, ...(user.subjects || []), ...(user.studySubjects || [])].some((value) => (value || '').toLowerCase().includes(term))));
+      const selectedMajor = document.getElementById('majorFilter').value;
+      const visible = users.filter((user) => matchesRole(user, filter) && (!selectedMajor || ((user.field_of_study || '').trim() || 'Not provided').toLocaleLowerCase() === selectedMajor) && (!selectedSubject || [...(user.subjects || []), ...(user.studySubjects || [])].includes(selectedSubject)) && (!term || [user.name, user.email, user.school, user.field_of_study, ...(user.subjects || []), ...(user.studySubjects || [])].some((value) => (value || '').toLowerCase().includes(term))));
       const body = document.getElementById('usersBody');
       body.replaceChildren();
       if (!visible.length) {
@@ -211,30 +254,19 @@
         } else {
           const pending = user.approval_status !== 'approved';
           accessCell.appendChild(element('span', `badge ${pending ? '' : 'active'}`, pending ? (user.approval_status === 'denied' ? 'DENIED' : 'WAITLIST') : 'APPROVED'));
-          const approvalButton = element('button', pending ? 'green' : 'plain', pending ? 'approve' : 'revoke');
-          approvalButton.type = 'button';
-          approvalButton.style.marginLeft = '.5rem';
-          approvalButton.addEventListener('click', async () => {
-            approvalButton.disabled = true;
-            try {
-              const result = await api('admin-set-approval', { userId: user.id, approved: pending });
-              toast(pending ? (result.emailed ? `${user.name} approved and emailed.` : `${user.name} approved. The email could not be sent.`) : `${user.name}'s access was revoked.`);
-              await loadUsers();
-            } catch (error) {
-              toast(error.message);
-              approvalButton.disabled = false;
-            }
-          });
-          accessCell.appendChild(approvalButton);
-          if (user.approval_status === 'pending') {
-            const deny = element('button', 'plain small', 'deny');
-            deny.type = 'button';
-            deny.addEventListener('click', async () => {
-              if (!confirm(`Deny ${user.name}'s application? They can update and resubmit it.`)) return;
-              try { await api('admin-deny-application', { userId: user.id }); await loadUsers(); }
+          if (pending) {
+            const review = element('a', 'button plain small', 'review');
+            review.href = `admin-review.html?user=${encodeURIComponent(user.id)}`;
+            accessCell.appendChild(review);
+          } else {
+            const revoke = element('button', 'plain small', 'revoke');
+            revoke.type = 'button';
+            revoke.addEventListener('click', async () => {
+              if (!confirm(`Revoke ${user.name}'s access?`)) return;
+              try { await api('admin-set-approval', { userId: user.id, approved: false }); await loadUsers(); }
               catch (error) { toast(error.message); }
             });
-            accessCell.appendChild(deny);
+            accessCell.appendChild(revoke);
           }
           if (!user.email_verified_at) accessCell.appendChild(element('small', '', ' email unconfirmed'));
         }
@@ -306,6 +338,7 @@
       users = data.users;
       document.getElementById('bookingCount').textContent = data.summary.plannedSessions;
       renderCounts();
+      renderMajors();
       renderUsers();
     }
 
@@ -382,16 +415,7 @@
     }));
     roleFilter.addEventListener('change', renderUsers);
     document.getElementById('subjectFilter').addEventListener('change', renderUsers);
-    document.getElementById('approveAll').addEventListener('click', async () => {
-      if (!confirm('Approve every waitlisted account with a confirmed email? Each person gets an email.')) return;
-      try {
-        const result = await api('admin-set-approval', { all: true, approved: true });
-        toast(`${result.approved} account${result.approved === 1 ? '' : 's'} approved.`);
-        await loadUsers();
-      } catch (error) {
-        toast(error.message);
-      }
-    });
+    document.getElementById('majorFilter').addEventListener('change', renderUsers);
     search.addEventListener('input', renderUsers);
 
     (async () => {

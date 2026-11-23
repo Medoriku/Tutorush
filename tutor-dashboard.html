@@ -43,7 +43,7 @@
     <p class="status" id="status" role="status"></p>
     <section id="offers"></section>
 
-    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Add availability</h3><p>Choose when your free time starts and ends. Students can book sessions at least two hours ahead.</p><form id="slotForm" class="form-grid"><div class="field"><label for="slotStart">Available from</label><input id="slotStart" type="datetime-local" required></div><div class="field"><label for="slotEnd">Available until</label><input id="slotEnd" type="datetime-local" required></div><div><button class="green" type="submit">add availability</button></div></form></section>
+    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Add availability</h3><p id="availabilityDate" aria-live="polite">Select a date on the calendar.</p><form id="slotForm" class="form-grid"><div class="field"><label for="slotStart">Available from</label><input id="slotStart" type="time" required></div><div class="field"><label for="slotEnd">Available until</label><input id="slotEnd" type="time" required><small id="endTimeHint" aria-live="polite"></small></div><div><button class="green" type="submit" disabled>add availability</button></div></form></section>
     <section class="panel">
       <h2>Your study rooms</h2>
       <p>Rooms stay here after a session ends so you can look back at the chat and files.</p>
@@ -52,7 +52,7 @@
   </main>
 
   <script src="app.js?v=20261123"></script>
-  <script src="schedule.js?v=20261124"></script>
+  <script src="schedule.js?v=20261125"></script>
   <script>
     let SUBJECTS = [];
     const status = document.getElementById('status');

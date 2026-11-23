@@ -122,6 +122,7 @@
         remove.addEventListener('click', async () => {
           try {
             application.documents = (await api('delete-application-document', { documentId: doc.id })).documents;
+            application.submittedAt = null;
             render();
           } catch (error) {
             setStatus(fileStatus, error.message, 'error');
@@ -204,6 +205,7 @@
           reader.readAsDataURL(file);
         });
         application.documents = (await api('upload-application-document', { kind, name: file.name, data })).documents;
+        application.submittedAt = null;
         input.value = '';
         setStatus(fileStatus, 'Uploaded.', 'success');
         render();

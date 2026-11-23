@@ -152,6 +152,12 @@ function initSchedule(user, view) {
 
   function render() {
     renderCalendar();
+    const form = document.getElementById('slotForm');
+    if (form) {
+      const selected = document.getElementById('availabilityDate');
+      selected.textContent = selectedDate ? `Availability for ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString([], { dateStyle: 'full' })}` : 'Select a date on the calendar.';
+      form.querySelector('button[type="submit"]').disabled = !selectedDate;
+    }
     mine.replaceChildren();
     const matchesDate = (slot) => !selectedDate || overlapsDay(slot, new Date(`${selectedDate}T00:00:00`));
     const own = slots.filter((slot) => (slot.tutorId === user.id || slot.studentId === user.id) && matchesDate(slot));
@@ -182,24 +188,31 @@ function initSchedule(user, view) {
   }
   const form = document.getElementById('slotForm');
   if (form) {
-    const start = document.getElementById('slotStart');
-    const end = document.getElementById('slotEnd');
-    const updateMinimums = () => {
-      start.min = localInputValue(new Date(Date.now() + clockOffset + 60000));
-      end.min = start.value || start.min;
+    const updateEndHint = () => {
+      const start = document.getElementById('slotStart').value;
+      const end = document.getElementById('slotEnd').value;
+      document.getElementById('endTimeHint').textContent = start && end && end < start ? 'Ends the following day' : '';
     };
-    start.addEventListener('change', updateMinimums);
-    updateMinimums();
+    document.getElementById('slotStart').addEventListener('input', updateEndHint);
+    document.getElementById('slotEnd').addEventListener('input', updateEndHint);
   }
   if (form) form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const starts = new Date(document.getElementById('slotStart').value);
-    const ends = new Date(document.getElementById('slotEnd').value);
+    if (!selectedDate) return setStatus(status, 'Select a date on the calendar.', 'error');
+    const startTime = document.getElementById('slotStart').value;
+    const endTime = document.getElementById('slotEnd').value;
+    const starts = new Date(`${selectedDate}T${startTime}`);
+    const endDay = new Date(`${selectedDate}T12:00:00`);
+    if (endTime < startTime) endDay.setDate(endDay.getDate() + 1);
+    const endDate = dateKey(endDay);
+    const ends = new Date(`${endDate}T${endTime}`);
     if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) return setStatus(status, 'Choose a start and end time.', 'error');
+    if (localInputValue(starts) !== `${selectedDate}T${startTime}` || localInputValue(ends) !== `${endDate}T${endTime}`) return setStatus(status, 'That local time does not exist. Choose another time.', 'error');
     if (starts.getTime() <= Date.now() + clockOffset || ends <= starts) return setStatus(status, 'Choose a future start and a later end time.', 'error');
     try {
       const result = await api('schedule-add', { startsAt: starts.toISOString(), endsAt: ends.toISOString() });
       form.reset();
+      document.getElementById('endTimeHint').textContent = '';
       await refresh();
       setStatus(status, result.message, 'success');
     } catch (error) {

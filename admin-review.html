@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Application review | TutorRush</title>
+  <link rel="stylesheet" href="app.css?v=20261124">
+  <style>
+    main.review-page { width: min(100% - 2rem, 1400px); margin: 2rem auto; }
+    .review-title { display: flex; align-items: end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .review-title h1 { margin: 0; font-size: 2rem; line-height: 1.15; letter-spacing: 0; }
+    .review-layout { display: grid; grid-template-columns: minmax(250px, 330px) minmax(0, 1fr); gap: 1.5rem; margin-top: 1.5rem; }
+    .review-queue { min-width: 0; border-right: 1px solid var(--line); padding-right: 1rem; }
+    .review-filters { display: grid; gap: .5rem; }
+    .review-filters input, .review-filters select { width: 100%; min-width: 0; }
+    .review-list { display: grid; gap: .5rem; margin-top: 1rem; }
+    .review-list button { width: 100%; text-align: left; border-radius: .4rem; background: #fff; box-shadow: none; overflow-wrap: anywhere; }
+    .review-list button[aria-pressed="true"] { background: var(--yellow); }
+    .review-list small { display: block; margin-top: .25rem; font-weight: 400; }
+    .review-detail { min-width: 0; }
+    .review-detail h2 { margin: 0; overflow-wrap: anywhere; }
+    .review-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+    .review-meta dt { font-size: .75rem; font-weight: 700; }
+    .review-meta dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+    .review-doc { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--line); }
+    .review-doc span { min-width: 0; overflow-wrap: anywhere; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.5rem; }
+    .review-actions .deny { background: #ffd2cb; }
+    @media (max-width: 700px) { .review-layout { grid-template-columns: 1fr; } .review-queue { border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 1rem; } .review-list { max-height: 16rem; overflow: auto; } }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="admin-dashboard.html"><span class="logo">TR</span><span>tutor rush</span></a>
+    <div class="actions"><a class="button plain" href="admin-dashboard.html">accounts</a><button id="logout" type="button">log out</button></div>
+  </header>
+  <main class="review-page">
+    <div class="review-title"><div><p class="eyebrow">Admin dashboard</p><h1>Application review</h1></div><span class="badge" id="queueCount">0 pending</span></div>
+    <p class="status" id="reviewStatus" role="status"></p>
+    <div class="review-layout">
+      <aside class="review-queue" aria-label="Application queue">
+        <div class="review-filters">
+          <input type="search" id="reviewSearch" placeholder="Search name, email or major" aria-label="Search applications">
+          <select id="reviewRole" aria-label="Filter by role"><option value="all">All roles</option><option value="student">Students</option><option value="tutor">Tutors</option><option value="both">Student + tutor</option></select>
+          <select id="reviewState" aria-label="Filter by status"><option value="pending">Pending</option><option value="denied">Denied</option><option value="all">All awaiting access</option></select>
+        </div>
+        <div class="review-list" id="reviewList"></div>
+      </aside>
+      <section class="review-detail" id="reviewDetail" aria-live="polite"><p>Select an application to review.</p></section>
+    </div>
+  </main>
+  <script src="app.js?v=20261123"></script>
+  <script>
+    const reviewStatus = document.getElementById('reviewStatus');
+    const reviewList = document.getElementById('reviewList');
+    const reviewDetail = document.getElementById('reviewDetail');
+    let users = [];
+    let selectedId = null;
+
+    function renderQueue() {
+      const term = document.getElementById('reviewSearch').value.trim().toLowerCase();
+      const role = document.getElementById('reviewRole').value;
+      const state = document.getElementById('reviewState').value;
+      const applicants = users.filter((user) => user.role !== 'admin' && user.approval_status !== 'approved');
+      document.getElementById('queueCount').textContent = `${applicants.filter((user) => user.approval_status === 'pending').length} pending`;
+      const visible = applicants.filter((user) => (role === 'all' || user.role === role) && (state === 'all' || user.approval_status === state) && (!term || [user.name, user.email, user.field_of_study].some((value) => (value || '').toLowerCase().includes(term))));
+      reviewList.replaceChildren();
+      if (!visible.length) reviewList.appendChild(element('p', '', 'No applications match these filters.'));
+      visible.forEach((user) => {
+        const button = element('button', '', user.name);
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(user.id === selectedId));
+        const submitted = user.application_submitted_at ? 'Submitted' : 'Incomplete';
+        button.appendChild(element('small', '', `${user.role} · ${user.field_of_study || 'Major not provided'} · ${user.approval_status === 'denied' ? 'Denied' : submitted}`));
+        button.addEventListener('click', () => openReview(user.id));
+        reviewList.appendChild(button);
+      });
+    }
+
+    async function downloadDocument(documentInfo) {
+      try {
+        const result = await api('admin-application-document', { documentId: documentInfo.id });
+        const bytes = Uint8Array.from(atob(result.data), (character) => character.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = result.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) {
+        setStatus(reviewStatus, error.message, 'error');
+      }
+    }
+
+    function showReview(detail) {
+      reviewDetail.replaceChildren(element('h2', '', detail.name), element('p', '', `${detail.email} · ${detail.role}`));
+      reviewDetail.appendChild(element('span', `badge ${detail.ready ? 'active' : ''}`, detail.approvalStatus === 'denied' ? 'DENIED' : detail.ready ? 'READY FOR REVIEW' : 'INCOMPLETE'));
+      const fields = element('dl', 'review-meta');
+      const add = (label, value) => {
+        const group = element('div');
+        group.append(element('dt', '', label), element('dd', '', value || 'Not provided'));
+        fields.appendChild(group);
+      };
+      add('Signed up', formatDateTime(detail.createdAt));
+      add('Email', detail.emailVerified ? 'Confirmed' : 'Not confirmed');
+      add('Application', detail.submittedAt ? `Submitted ${formatDateTime(detail.submittedAt)}` : 'Not submitted');
+      add('School', detail.school);
+      add('Major', detail.fieldOfStudy);
+      add('GPA', detail.gpa);
+      add('Subjects studied', detail.studySubjects.join(', '));
+      add('Subjects taught', detail.subjects.join(', '));
+      reviewDetail.append(fields, element('h3', '', 'Documents'));
+      if (!detail.documents.length) reviewDetail.appendChild(element('p', '', 'No documents uploaded.'));
+      detail.documents.forEach((documentInfo) => {
+        const row = element('div', 'review-doc');
+        row.appendChild(element('span', '', `${documentInfo.kind === 'transcript' ? 'Transcript' : 'Supporting document'}: ${documentInfo.name}`));
+        const download = element('button', 'plain', 'download');
+        download.type = 'button';
+        download.addEventListener('click', () => downloadDocument(documentInfo));
+        row.appendChild(download);
+        reviewDetail.appendChild(row);
+      });
+      if (detail.approvalStatus !== 'pending') return;
+      const actions = element('div', 'review-actions');
+      const approve = element('button', 'green', 'approve application');
+      approve.type = 'button';
+      approve.disabled = !detail.ready;
+      const deny = element('button', 'deny', 'deny application');
+      deny.type = 'button';
+      const decide = async (approveDecision) => {
+        if (!confirm(`${approveDecision ? 'Approve' : 'Deny'} ${detail.name}'s application?`)) return;
+        approve.disabled = deny.disabled = true;
+        try {
+          const result = await api(approveDecision ? 'admin-set-approval' : 'admin-deny-application', { userId: detail.id, approved: approveDecision, revision: detail.revision });
+          selectedId = null;
+          reviewDetail.replaceChildren(element('p', '', 'Select an application to review.'));
+          await loadQueue();
+          setStatus(reviewStatus, approveDecision ? (result.emailed ? 'Application approved and email sent.' : 'Application approved, but the email could not be sent.') : result.message, approveDecision && !result.emailed ? 'error' : 'success');
+        } catch (error) {
+          setStatus(reviewStatus, error.message, 'error');
+          await openReview(detail.id);
+        }
+      };
+      approve.addEventListener('click', () => decide(true));
+      deny.addEventListener('click', () => decide(false));
+      actions.append(approve, deny);
+      reviewDetail.appendChild(actions);
+      if (!detail.ready) reviewDetail.appendChild(element('p', '', 'A confirmed email, completed application and transcript are required before approval.'));
+    }
+
+    async function openReview(userId) {
+      selectedId = userId;
+      renderQueue();
+      reviewDetail.replaceChildren(element('p', '', 'Loading application...'));
+      try {
+        const { user } = await api('admin-user-details', { userId });
+        if (selectedId === userId) showReview(user);
+      } catch (error) {
+        if (selectedId === userId) reviewDetail.replaceChildren(element('p', 'status error', error.message));
+      }
+    }
+
+    async function loadQueue() {
+      users = (await api('admin-dashboard')).users;
+      renderQueue();
+    }
+
+    ['reviewSearch', 'reviewRole', 'reviewState'].forEach((id) => document.getElementById(id).addEventListener(id === 'reviewSearch' ? 'input' : 'change', renderQueue));
+    (async () => {
+      try {
+        const user = await loadSession();
+        if (!user) return;
+        if (user.role !== 'admin') { location.replace(routes[user.role === 'tutor' ? 'tutor' : 'student']); return; }
+        setupHeader(user, 'admin');
+        await loadQueue();
+        const requested = Number(new URLSearchParams(location.search).get('user'));
+        const applicant = users.find((entry) => entry.id === requested && entry.role !== 'admin' && entry.approval_status !== 'approved');
+        if (applicant) {
+          document.getElementById('reviewState').value = applicant.approval_status === 'denied' ? 'denied' : 'pending';
+          await openReview(requested);
+        }
+      } catch (error) {
+        setStatus(reviewStatus, error.message, 'error');
+      }
+    })();
+  </script>
+</body>
+</html>

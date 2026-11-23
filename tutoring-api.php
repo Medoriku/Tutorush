@@ -602,6 +602,9 @@ try {
             $database->exec("ALTER TABLE users ADD COLUMN $applicationColumn TEXT");
         }
     }
+    if (!in_array('application_revision', $userColumns, true)) {
+        $database->exec('ALTER TABLE users ADD COLUMN application_revision INTEGER NOT NULL DEFAULT 0');
+    }
     $database->exec("UPDATE users SET approved_tutor_subjects = tutor_subjects WHERE approval_status = 'approved' AND role IN ('tutor', 'both') AND approved_tutor_subjects IS NULL");
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
@@ -1588,14 +1591,11 @@ try {
         if ((int) $transcript->fetchColumn() === 0) respond(422, ['error' => 'Upload your transcript as a PDF before submitting.']);
         $studySubjects = array_values(array_intersect(TUTOR_SUBJECTS, is_array($request['studySubjects'] ?? null) ? $request['studySubjects'] : []));
         if (in_array($role, ['student', 'both'], true) && !$studySubjects) respond(422, ['error' => 'Choose at least one subject you study.']);
-        if ($isTutor) {
-            $subjects = array_values(array_intersect(TUTOR_SUBJECTS, is_array($request['subjects'] ?? null) ? $request['subjects'] : []));
-            if (!$subjects) respond(422, ['error' => 'Choose at least one topic you can tutor.']);
-            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, gpa = ?, tutor_subjects = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy, $gpa, json_encode($subjects, JSON_UNESCAPED_UNICODE), $userId]);
-        } else {
-            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, gpa = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy, $gpa, $userId]);
-        }
-        $database->prepare("UPDATE users SET study_subjects = ?, approval_status = CASE WHEN approval_status = 'denied' THEN 'pending' ELSE approval_status END WHERE id = ?")->execute([json_encode($studySubjects, JSON_UNESCAPED_UNICODE), $userId]);
+        $subjects = array_values(array_intersect(TUTOR_SUBJECTS, is_array($request['subjects'] ?? null) ? $request['subjects'] : []));
+        if ($isTutor && !$subjects) respond(422, ['error' => 'Choose at least one topic you can tutor.']);
+        $update = $database->prepare("UPDATE users SET school = ?, field_of_study = ?, gpa = ?, tutor_subjects = CASE WHEN role IN ('tutor', 'both') THEN ? ELSE tutor_subjects END, study_subjects = ?, application_submitted_at = CURRENT_TIMESTAMP, approval_status = CASE WHEN approval_status = 'denied' THEN 'pending' ELSE approval_status END, application_revision = application_revision + 1 WHERE id = ? AND approval_status != 'approved' AND EXISTS (SELECT 1 FROM application_documents WHERE user_id = users.id AND kind = 'transcript')");
+        $update->execute([$school, $fieldOfStudy, $gpa, json_encode($subjects, JSON_UNESCAPED_UNICODE), json_encode($studySubjects, JSON_UNESCAPED_UNICODE), $userId]);
+        if (!$update->rowCount()) respond(409, ['error' => 'Your application changed. Refresh the page and try again.']);
         respond(200, ['message' => 'Application saved. We will review it and email you when you are approved.']);
     }
 
@@ -1630,13 +1630,37 @@ try {
             throw new RuntimeException('Could not store the uploaded document.');
         }
         $replaced = [];
-        if ($kind === 'transcript') {
-            $old = $database->prepare("SELECT stored_name FROM application_documents WHERE user_id = ? AND kind = 'transcript'");
-            $old->execute([$userId]);
-            $replaced = $old->fetchAll(PDO::FETCH_COLUMN);
-            $database->prepare("DELETE FROM application_documents WHERE user_id = ? AND kind = 'transcript'")->execute([$userId]);
+        $database->beginTransaction();
+        try {
+            $update = $database->prepare("UPDATE users SET application_revision = application_revision + 1, application_submitted_at = NULL WHERE id = ? AND approval_status != 'approved'");
+            $update->execute([$userId]);
+            if (!$update->rowCount()) {
+                $database->rollBack();
+                @unlink(applicationDirectory() . '/' . $storedName);
+                respond(409, ['error' => 'Your application was approved. Contact an admin to update it.']);
+            }
+            if ($kind === 'supporting') {
+                $count = $database->prepare("SELECT COUNT(*) FROM application_documents WHERE user_id = ? AND kind = 'supporting'");
+                $count->execute([$userId]);
+                if ((int) $count->fetchColumn() >= MAX_SUPPORTING_DOCUMENTS) {
+                    $database->rollBack();
+                    @unlink(applicationDirectory() . '/' . $storedName);
+                    respond(422, ['error' => 'You can attach up to ' . MAX_SUPPORTING_DOCUMENTS . ' supporting documents.']);
+                }
+            }
+            if ($kind === 'transcript') {
+                $old = $database->prepare("SELECT stored_name FROM application_documents WHERE user_id = ? AND kind = 'transcript'");
+                $old->execute([$userId]);
+                $replaced = $old->fetchAll(PDO::FETCH_COLUMN);
+                $database->prepare("DELETE FROM application_documents WHERE user_id = ? AND kind = 'transcript'")->execute([$userId]);
+            }
+            $database->prepare('INSERT INTO application_documents (user_id, kind, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)')->execute([$userId, $kind, $name, $storedName, strlen($contents)]);
+            $database->commit();
+        } catch (Throwable $exception) {
+            if ($database->inTransaction()) $database->rollBack();
+            @unlink(applicationDirectory() . '/' . $storedName);
+            throw $exception;
         }
-        $database->prepare('INSERT INTO application_documents (user_id, kind, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)')->execute([$userId, $kind, $name, $storedName, strlen($contents)]);
         foreach ($replaced as $oldName) {
             @unlink(applicationDirectory() . '/' . basename((string) $oldName));
         }
@@ -1654,7 +1678,20 @@ try {
         $statement->execute([$documentId, $userId]);
         $storedName = $statement->fetchColumn();
         if ($storedName === false) respond(404, ['error' => 'Document not found.']);
-        $database->prepare('DELETE FROM application_documents WHERE id = ?')->execute([$documentId]);
+        $database->beginTransaction();
+        $update = $database->prepare("UPDATE users SET application_revision = application_revision + 1, application_submitted_at = NULL WHERE id = ? AND approval_status != 'approved'");
+        $update->execute([$userId]);
+        if (!$update->rowCount()) {
+            $database->rollBack();
+            respond(409, ['error' => 'Your application was approved. Contact an admin to update it.']);
+        }
+        $delete = $database->prepare('DELETE FROM application_documents WHERE id = ? AND user_id = ?');
+        $delete->execute([$documentId, $userId]);
+        if (!$delete->rowCount()) {
+            $database->rollBack();
+            respond(404, ['error' => 'Document not found.']);
+        }
+        $database->commit();
         @unlink(applicationDirectory() . '/' . basename((string) $storedName));
         respond(200, ['documents' => applicationDocuments($database, $userId)]);
     }
@@ -1663,7 +1700,7 @@ try {
         requireAdmin();
         $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
         if (!$userId) respond(422, ['error' => 'A valid user is required.']);
-        $statement = $database->prepare('SELECT id, name, email, role, approval_status, school, field_of_study, tutor_subjects, study_subjects, gpa, application_submitted_at, created_at FROM users WHERE id = ?');
+        $statement = $database->prepare('SELECT id, name, email, role, approval_status, email_verified_at, school, field_of_study, tutor_subjects, study_subjects, gpa, application_submitted_at, application_revision, created_at FROM users WHERE id = ?');
         $statement->execute([$userId]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$row) respond(404, ['error' => 'User not found.']);
@@ -1673,6 +1710,9 @@ try {
             'email' => $row['email'],
             'role' => $row['role'],
             'approvalStatus' => $row['approval_status'],
+            'emailVerified' => $row['email_verified_at'] !== null,
+            'ready' => applicationReady($database, $userId),
+            'revision' => (int) $row['application_revision'],
             'school' => $row['school'] ?? '',
             'fieldOfStudy' => $row['field_of_study'] ?? '',
             'gpa' => $row['gpa'] ?? '',
@@ -1693,6 +1733,7 @@ try {
         $document = $statement->fetch(PDO::FETCH_ASSOC);
         $path = $document ? applicationDirectory() . '/' . basename($document['stored_name']) : '';
         if (!$document || !is_file($path)) respond(404, ['error' => 'Document not found.']);
+        debugLog('application_document_downloaded', ['adminId' => (int) $_SESSION['tutorrush_user_id'], 'documentId' => (int) $documentId]);
         $extension = strtolower(pathinfo($document['stored_name'], PATHINFO_EXTENSION));
         respond(200, ['name' => $document['original_name'], 'mime' => APPLICATION_FILE_TYPES[$extension] ?? 'application/octet-stream', 'data' => base64_encode((string) file_get_contents($path))]);
     }
@@ -1704,20 +1745,7 @@ try {
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
         $loginUrl = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'tutorush.com') . '/login.html';
         $notify = static fn(array $person): bool => sendPlainEmail($person['email'], $person['name'], 'Your TutorRush account is approved', "Hi {$person['name']},\n\nGood news: your TutorRush account has been approved and you are in!\nLog in here to get started:\n$loginUrl\n\nThe TutorRush team\n");
-        if (!empty($request['all'])) {
-            if (!$approve) respond(422, ['error' => 'Bulk revoke is not supported.']);
-            set_time_limit(120);
-            $pending = $database->query("SELECT id, name, email FROM users WHERE approval_status = 'pending' AND email_verified_at IS NOT NULL AND application_submitted_at IS NOT NULL AND EXISTS (SELECT 1 FROM application_documents d WHERE d.user_id = users.id AND d.kind = 'transcript') LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
-            $mark = $database->prepare("UPDATE users SET approval_status = 'approved', approved_tutor_subjects = tutor_subjects WHERE id = ?");
-            $approvedCount = 0;
-            foreach ($pending as $person) {
-                if (!applicationReady($database, (int) $person['id'])) continue;
-                $mark->execute([(int) $person['id']]);
-                $approvedCount++;
-                $notify($person);
-            }
-            respond(200, ['approved' => $approvedCount]);
-        }
+        if (!empty($request['all'])) respond(422, ['error' => 'Applications must be reviewed individually.']);
         $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
         if (!$userId) respond(422, ['error' => 'A valid user is required.']);
         $statement = $database->prepare("SELECT id, name, email, role, email_verified_at, application_submitted_at, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = users.id AND d.kind = 'transcript') AS transcript_count FROM users WHERE id = ?");
@@ -1725,15 +1753,29 @@ try {
         $person = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$person) respond(404, ['error' => 'User not found.']);
         if ($person['role'] === 'admin') respond(422, ['error' => 'Admins are always approved.']);
-        if ($approve && !applicationReady($database, $userId)) {
-            respond(422, ['error' => 'The applicant must confirm their email and submit a complete application, including GPA, subjects and transcript, before approval.']);
+        if ($approve) {
+            $revision = filter_var($request['revision'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+            if ($revision === false) respond(422, ['error' => 'Open the application review before approving.']);
+            $database->exec('BEGIN IMMEDIATE');
+            if (!applicationReady($database, $userId)) {
+                $database->exec('ROLLBACK');
+                respond(422, ['error' => 'The applicant must confirm their email and submit a complete application, including GPA, subjects and transcript, before approval.']);
+            }
+            $update = $database->prepare("UPDATE users SET approval_status = 'approved', approved_tutor_subjects = tutor_subjects WHERE id = ? AND application_revision = ? AND approval_status != 'approved'");
+            $update->execute([$userId, $revision]);
+            if (!$update->rowCount()) {
+                $database->exec('ROLLBACK');
+                respond(409, ['error' => 'This application changed or was already reviewed. Reload it before approving.']);
+            }
+            $database->exec('COMMIT');
+        } else {
+            $database->prepare("UPDATE users SET approval_status = 'pending' WHERE id = ?")->execute([$userId]);
         }
-        $database->prepare('UPDATE users SET approval_status = ? WHERE id = ?')->execute([$approve ? 'approved' : 'pending', $userId]);
-        if ($approve) $database->prepare('UPDATE users SET approved_tutor_subjects = tutor_subjects WHERE id = ?')->execute([$userId]);
         if (!$approve) {
             $database->prepare("UPDATE users SET is_online = 0, availability_status = 'offline' WHERE id = ? AND availability_status = 'online'")->execute([$userId]);
         }
         $emailed = $approve ? $notify($person) : false;
+        debugLog('application_access_changed', ['adminId' => (int) $_SESSION['tutorrush_user_id'], 'userId' => (int) $userId, 'approved' => $approve]);
         respond(200, ['approvalStatus' => $approve ? 'approved' : 'pending', 'emailed' => $emailed]);
     }
 
@@ -1741,9 +1783,12 @@ try {
         requireAdmin();
         $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
         if (!$userId) respond(422, ['error' => 'A valid user is required.']);
-        $statement = $database->prepare("UPDATE users SET approval_status = 'denied', is_online = 0, availability_status = 'offline' WHERE id = ? AND role != 'admin' AND approval_status != 'approved'");
-        $statement->execute([$userId]);
-        if (!$statement->rowCount()) respond(409, ['error' => 'Only pending applications can be denied.']);
+        $revision = filter_var($request['revision'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        if ($revision === false) respond(422, ['error' => 'Open the application review before denying.']);
+        $statement = $database->prepare("UPDATE users SET approval_status = 'denied', is_online = 0, availability_status = 'offline' WHERE id = ? AND role != 'admin' AND approval_status = 'pending' AND application_revision = ?");
+        $statement->execute([$userId, $revision]);
+        if (!$statement->rowCount()) respond(409, ['error' => 'This application changed or was already reviewed. Reload it before denying.']);
+        debugLog('application_denied', ['adminId' => (int) $_SESSION['tutorrush_user_id'], 'userId' => (int) $userId]);
         respond(200, ['message' => 'Application denied. The applicant can update and resubmit it.']);
     }
 
