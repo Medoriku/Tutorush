@@ -34,7 +34,7 @@ header('X-Content-Type-Options: nosniff');
 
 const ADMIN_EMAIL = 'diyoradaminovaz.m@gmail.com';
 const TUTOR_HEARTBEAT_SECONDS = 150;
-const TUTOR_SUBJECTS = ['Calculus 1', 'Calculus 3', 'Physics', 'English', 'Computer Science', 'Biology', 'General tutoring'];
+const TUTOR_SUBJECTS = ['Algebra', 'Geometry', 'Precalculus', 'Calculus 1', 'Calculus 2', 'Calculus 3', 'Statistics', 'Linear Algebra', 'Physics', 'Chemistry', 'Biology', 'Anatomy', 'Economics', 'Accounting', 'Finance', 'English', 'Writing', 'History', 'Psychology', 'Computer Science', 'Programming', 'Spanish', 'General tutoring'];
 const MAX_APPLICATION_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_SUPPORTING_DOCUMENTS = 5;
 const SAFE_FILE_NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9 _().-]{0,95}\.[A-Za-z0-9]{1,5}$/D';
@@ -318,7 +318,17 @@ function requireUserId(): int {
     if (!isset($_SESSION['tutorrush_user_id'])) {
         respond(401, ['error' => 'Please log in first.']);
     }
-    return (int) $_SESSION['tutorrush_user_id'];
+    global $database;
+    $userId = (int) $_SESSION['tutorrush_user_id'];
+    $statement = $database->prepare('SELECT role FROM users WHERE id = ?');
+    $statement->execute([$userId]);
+    $role = $statement->fetchColumn();
+    if ($role === false) {
+        $_SESSION = [];
+        respond(401, ['error' => 'Please log in first.']);
+    }
+    $_SESSION['tutorrush_role'] = $role;
+    return $userId;
 }
 
 function requireApprovedUser(PDO $database): int {
@@ -422,7 +432,18 @@ function applicationDocuments(PDO $database, int $userId): array {
     ], $statement->fetchAll(PDO::FETCH_ASSOC));
 }
 
+function applicationReady(PDO $database, int $userId): bool {
+    $statement = $database->prepare("SELECT role, email_verified_at, application_submitted_at, school, field_of_study, gpa, tutor_subjects, study_subjects, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = users.id AND d.kind = 'transcript') AS transcript_count FROM users WHERE id = ?");
+    $statement->execute([$userId]);
+    $user = $statement->fetch(PDO::FETCH_ASSOC);
+    if (!$user || empty($user['email_verified_at']) || empty($user['application_submitted_at']) || empty($user['school']) || empty($user['field_of_study']) || !is_numeric($user['gpa']) || (float) $user['gpa'] < 0 || (float) $user['gpa'] > 4 || !(int) $user['transcript_count']) return false;
+    if (in_array($user['role'], ['tutor', 'both'], true) && !(json_decode((string) $user['tutor_subjects'], true) ?: [])) return false;
+    if (in_array($user['role'], ['student', 'both'], true) && !(json_decode((string) $user['study_subjects'], true) ?: [])) return false;
+    return true;
+}
+
 function requireAdmin(): void {
+    requireUserId();
     if (($_SESSION['tutorrush_role'] ?? '') !== 'admin') {
         respond(403, ['error' => 'Administrator access is required.']);
     }
@@ -437,6 +458,8 @@ function userPayload(array $user): array {
         'approvalStatus' => $user['approval_status'] ?? 'approved',
         'availabilityStatus' => $user['availability_status'] ?? ((int) ($user['is_online'] ?? 0) ? 'online' : 'offline'),
         'subjects' => json_decode((string) ($user['tutor_subjects'] ?? ''), true) ?: [],
+        'approvedSubjects' => json_decode((string) ($user['approved_tutor_subjects'] ?? ''), true) ?: [],
+        'availableSubjects' => TUTOR_SUBJECTS,
     ];
 }
 
@@ -574,11 +597,12 @@ try {
     if (!in_array('last_seen_at', $userColumns, true)) {
         $database->exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
     }
-    foreach (['school', 'field_of_study', 'application_submitted_at'] as $applicationColumn) {
+    foreach (['school', 'field_of_study', 'application_submitted_at', 'gpa', 'study_subjects', 'approved_tutor_subjects'] as $applicationColumn) {
         if (!in_array($applicationColumn, $userColumns, true)) {
             $database->exec("ALTER TABLE users ADD COLUMN $applicationColumn TEXT");
         }
     }
+    $database->exec("UPDATE users SET approved_tutor_subjects = tutor_subjects WHERE approval_status = 'approved' AND role IN ('tutor', 'both') AND approved_tutor_subjects IS NULL");
     $userTableSql = (string) $database->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
     if (!str_contains($userTableSql, "'tutor'")) {
         $database->exec('PRAGMA foreign_keys = OFF');
@@ -820,6 +844,19 @@ try {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )');
+    $database->exec("CREATE TABLE IF NOT EXISTS planned_slots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tutor_id INTEGER NOT NULL REFERENCES users(id),
+        start_at INTEGER NOT NULL,
+        duration INTEGER NOT NULL,
+        student_id INTEGER REFERENCES users(id),
+        subject TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    $database->exec('CREATE INDEX IF NOT EXISTS idx_planned_slots_start ON planned_slots(start_at, status)');
+    $slotColumns = array_column($database->query('PRAGMA table_info(planned_slots)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('room_id', $slotColumns, true)) $database->exec('ALTER TABLE planned_slots ADD COLUMN room_id INTEGER');
 
     $action = $_GET['action'] ?? '';
     if (in_array($action, ['google-start', 'google-callback'], true)) {
@@ -832,14 +869,14 @@ try {
     $request = requestBody();
     $action = $request['action'] ?? '';
 
-    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'logout', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-match-request', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'my-application', 'submit-application', 'upload-application-document', 'delete-application-document', 'admin-user-details', 'admin-application-document', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-set-approval', 'admin-delete-user'], true)) {
+    if (!is_string($action) || !in_array($action, ['session', 'signup', 'verify-email', 'resend-verification', 'login', 'logout', 'request-password-reset', 'reset-password', 'set-tutor-status', 'set-tutor-subjects', 'find-online-tutor', 'tutor-requests', 'accept-match-request', 'decline-match-request', 'cancel-match-request', 'match-request-status', 'my-match-request', 'my-rooms', 'room-details', 'room-send-message', 'room-upload-file', 'room-download-file', 'room-start-call', 'room-send-signal', 'room-get-signals', 'end-room', 'booking', 'submit-feedback', 'admin-feedback', 'admin-set-feedback-status', 'my-application', 'submit-application', 'upload-application-document', 'delete-application-document', 'admin-user-details', 'admin-application-document', 'message', 'availability', 'admin-dashboard', 'admin-set-role', 'admin-set-approval', 'admin-delete-user', 'delete-account', 'admin-deny-application', 'schedule-list', 'schedule-add', 'schedule-book', 'schedule-cancel', 'schedule-enter'], true)) {
         respond(404, ['error' => 'Unknown action.']);
     }
 
     if ($action === 'session') {
         $user = null;
         if (isset($_SESSION['tutorrush_user_id'])) {
-            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status, tutor_subjects, approval_status FROM users WHERE id = ?');
+            $statement = $database->prepare('SELECT id, name, email, role, is_online, availability_status, tutor_subjects, approved_tutor_subjects, approval_status FROM users WHERE id = ?');
             $statement->execute([(int) $_SESSION['tutorrush_user_id']]);
             $user = $statement->fetch(PDO::FETCH_ASSOC) ?: null;
             if ($user) {
@@ -926,7 +963,7 @@ try {
         $role = $email === ADMIN_EMAIL ? 'admin' : $requestedRole;
         $school = validateText($request['school'] ?? '', 120, 'School or university');
         $fieldOfStudy = trim((string) ($request['fieldOfStudy'] ?? ''));
-        if (mb_strlen($fieldOfStudy) > 120 || ($role !== 'student' && $role !== 'admin' && $fieldOfStudy === '')) {
+        if (mb_strlen($fieldOfStudy) > 120 || ($role !== 'admin' && $fieldOfStudy === '')) {
             respond(422, ['error' => 'Tell us what you study (up to 120 characters).']);
         }
         try {
@@ -1017,8 +1054,14 @@ try {
     if ($action === 'set-tutor-subjects') {
         $userId = requireApprovedUser($database);
         $subjects = $request['subjects'] ?? [];
-        if (!is_array($subjects) || count($subjects) > 20) respond(422, ['error' => 'Choose up to 20 subjects.']);
+        if (!is_array($subjects) || count($subjects) > count(TUTOR_SUBJECTS)) respond(422, ['error' => 'Choose valid subjects.']);
         $subjects = array_values(array_unique(array_filter(array_map(static fn($subject) => trim((string) $subject), $subjects))));
+        $allowedQuery = $database->prepare('SELECT role, approved_tutor_subjects FROM users WHERE id = ?');
+        $allowedQuery->execute([$userId]);
+        $allowedUser = $allowedQuery->fetch(PDO::FETCH_ASSOC);
+        if (!in_array($allowedUser['role'], ['tutor', 'both'], true)) respond(403, ['error' => 'Tutor access is required.']);
+        $allowedSubjects = json_decode((string) $allowedUser['approved_tutor_subjects'], true) ?: [];
+        if (array_diff($subjects, $allowedSubjects)) respond(403, ['error' => 'Only subjects approved in your application can be selected. Contact an admin to request additional subjects.']);
         $statement = $database->prepare('UPDATE users SET tutor_subjects = ?, availability_status = CASE WHEN ? = 0 AND availability_status = \'online\' THEN \'offline\' ELSE availability_status END, is_online = CASE WHEN ? = 0 AND availability_status = \'online\' THEN 0 ELSE is_online END WHERE id = ?');
         $statement->execute([json_encode($subjects, JSON_UNESCAPED_UNICODE), count($subjects), count($subjects), $userId]);
         respond(200, ['subjects' => $subjects]);
@@ -1287,6 +1330,81 @@ try {
         }
     }
 
+    if (in_array($action, ['schedule-list', 'schedule-add', 'schedule-book', 'schedule-cancel', 'schedule-enter'], true)) {
+        $userId = requireApprovedUser($database);
+        $userQuery = $database->prepare('SELECT role, tutor_subjects FROM users WHERE id = ?');
+        $userQuery->execute([$userId]);
+        $scheduleUser = $userQuery->fetch(PDO::FETCH_ASSOC);
+        $role = $scheduleUser['role'];
+        if ($action === 'schedule-list') {
+            $query = $database->prepare("SELECT p.id, p.tutor_id, p.student_id, p.start_at, p.duration, p.subject, p.status, p.room_id, t.name AS tutor_name, t.tutor_subjects, s.name AS student_name FROM planned_slots p JOIN users t ON t.id = p.tutor_id LEFT JOIN users s ON s.id = p.student_id WHERE p.start_at + p.duration * 60 > CAST(? AS INTEGER) AND ((p.tutor_id = ? AND p.status IN ('open', 'booked', 'cancelled')) OR (p.student_id = ? AND p.status IN ('booked', 'cancelled')) OR (p.status = 'open' AND p.tutor_id != ? AND t.approval_status = 'approved')) ORDER BY p.start_at LIMIT 300");
+            $query->execute([time(), $userId, $userId, $userId]);
+            $slots = array_map(static fn(array $slot): array => [
+                'id' => (int) $slot['id'], 'tutorId' => (int) $slot['tutor_id'],
+                'studentId' => $slot['student_id'] === null ? null : (int) $slot['student_id'],
+                'startsAt' => gmdate('Y-m-d\TH:i:s\Z', (int) $slot['start_at']),
+                'duration' => (int) $slot['duration'], 'subject' => $slot['subject'],
+                'status' => $slot['status'], 'tutorName' => $slot['tutor_name'],
+                'roomId' => $slot['room_id'] === null ? null : (int) $slot['room_id'],
+                'studentName' => $slot['student_name'], 'subjects' => json_decode((string) $slot['tutor_subjects'], true) ?: [],
+            ], $query->fetchAll(PDO::FETCH_ASSOC));
+            respond(200, ['slots' => $slots]);
+        }
+        if ($action === 'schedule-add') {
+            if (!in_array($role, ['tutor', 'both'], true)) respond(403, ['error' => 'Tutor access is required.']);
+            $startsAt = strtotime((string) ($request['startsAt'] ?? ''));
+            $duration = filter_var($request['duration'] ?? null, FILTER_VALIDATE_INT);
+            if (!$startsAt || $startsAt < time() + 300 || $startsAt > time() + 366 * 86400 || !in_array($duration, [30, 60, 90, 120], true)) respond(422, ['error' => 'Choose a future time and a valid duration.']);
+            if (!json_decode((string) $scheduleUser['tutor_subjects'], true)) respond(422, ['error' => 'Choose your teaching subjects first.']);
+            $database->exec('BEGIN IMMEDIATE');
+            $overlap = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE tutor_id = ? AND status IN ('open', 'booked') AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
+            $overlap->execute([$userId, $startsAt + $duration * 60, $startsAt]);
+            if ((int) $overlap->fetchColumn()) { $database->exec('ROLLBACK'); respond(409, ['error' => 'This time overlaps another availability or session.']); }
+            $database->prepare('INSERT INTO planned_slots (tutor_id, start_at, duration) VALUES (?, ?, ?)')->execute([$userId, $startsAt, $duration]);
+            $database->exec('COMMIT');
+            respond(201, ['message' => 'Availability added.']);
+        }
+        $slotId = filter_var($request['slotId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$slotId) respond(422, ['error' => 'Choose a valid time slot.']);
+        if ($action === 'schedule-enter') {
+            $database->exec('BEGIN IMMEDIATE');
+            $query = $database->prepare("SELECT * FROM planned_slots WHERE id = ? AND status = 'booked' AND (tutor_id = ? OR student_id = ?) AND start_at <= ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
+            $query->execute([$slotId, $userId, $userId, time() + 900, time()]);
+            $slot = $query->fetch(PDO::FETCH_ASSOC);
+            if (!$slot) { $database->exec('ROLLBACK'); respond(404, ['error' => 'The session room is not available yet.']); }
+            if ($slot['room_id'] === null) {
+                if (activeRoomId($database, (int) $slot['tutor_id']) !== null || activeRoomId($database, (int) $slot['student_id']) !== null) { $database->exec('ROLLBACK'); respond(409, ['error' => 'One participant is already in an active room. End that session first.']); }
+                $database->prepare("INSERT INTO match_requests (student_id, tutor_id, subject, help_type, duration, status) VALUES (?, ?, ?, 'Planned session', ?, 'accepted')")->execute([$slot['student_id'], $slot['tutor_id'], $slot['subject'], $slot['duration']]);
+                $matchId = (int) $database->lastInsertId();
+                $database->prepare('INSERT INTO study_rooms (match_request_id, student_id, tutor_id, video_token) VALUES (?, ?, ?, ?)')->execute([$matchId, $slot['student_id'], $slot['tutor_id'], bin2hex(random_bytes(12))]);
+                $slot['room_id'] = (int) $database->lastInsertId();
+                $database->prepare('UPDATE planned_slots SET room_id = ? WHERE id = ?')->execute([$slot['room_id'], $slotId]);
+                $database->prepare("UPDATE users SET is_online = 0, availability_status = 'busy' WHERE id = ?")->execute([$slot['tutor_id']]);
+            }
+            $database->exec('COMMIT');
+            respond(200, ['roomId' => (int) $slot['room_id']]);
+        }
+        if ($action === 'schedule-book') {
+            if (!in_array($role, ['student', 'both'], true)) respond(403, ['error' => 'Student access is required.']);
+            $subject = validateText($request['subject'] ?? '', 80, 'Subject');
+            $database->exec('BEGIN IMMEDIATE');
+            $query = $database->prepare("SELECT p.*, u.tutor_subjects FROM planned_slots p JOIN users u ON u.id = p.tutor_id WHERE p.id = ? AND p.status = 'open' AND p.start_at > ? AND u.approval_status = 'approved'");
+            $query->execute([$slotId, time()]);
+            $slot = $query->fetch(PDO::FETCH_ASSOC);
+            if (!$slot || (int) $slot['tutor_id'] === $userId || !in_array($subject, json_decode((string) ($slot['tutor_subjects'] ?? ''), true) ?: [], true)) { $database->exec('ROLLBACK'); respond(409, ['error' => 'This time or subject is no longer available.']); }
+            $overlap = $database->prepare("SELECT COUNT(*) FROM planned_slots WHERE status = 'booked' AND (student_id = ? OR tutor_id = ?) AND start_at < ? AND start_at + duration * 60 > CAST(? AS INTEGER)");
+            $overlap->execute([$userId, $userId, (int) $slot['start_at'] + (int) $slot['duration'] * 60, (int) $slot['start_at']]);
+            if ((int) $overlap->fetchColumn()) { $database->exec('ROLLBACK'); respond(409, ['error' => 'You already have a session at this time.']); }
+            $database->prepare("UPDATE planned_slots SET student_id = ?, subject = ?, status = 'booked' WHERE id = ? AND status = 'open'")->execute([$userId, $subject, $slotId]);
+            $database->exec('COMMIT');
+            respond(200, ['message' => 'Session booked.']);
+        }
+        $query = $database->prepare("UPDATE planned_slots SET status = 'cancelled' WHERE id = ? AND (tutor_id = ? OR student_id = ?) AND status IN ('open', 'booked') AND start_at > ?");
+        $query->execute([$slotId, $userId, $userId, time()]);
+        if (!$query->rowCount()) respond(404, ['error' => 'This session is no longer available to cancel.']);
+        respond(200, ['message' => 'Cancelled.']);
+    }
+
     if ($action === 'booking') {
         $userId = requireUserId();
         $tutorName = validateText($request['tutorName'] ?? '', 80, 'Tutor name');
@@ -1386,8 +1504,9 @@ try {
         $users = array_map(static fn(array $row): array => [
             ...$row,
             'subjects' => json_decode((string) $row['tutor_subjects'], true) ?: [],
+            'studySubjects' => json_decode((string) ($row['study_subjects'] ?? ''), true) ?: [],
             'transcript' => (int) $row['transcript_count'] > 0,
-        ], $database->query("SELECT u.id, u.name, u.email, u.role, u.approval_status, u.email_verified_at, u.created_at, u.school, u.field_of_study, u.tutor_subjects, u.application_submitted_at, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = u.id) AS document_count, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = u.id AND d.kind = 'transcript') AS transcript_count FROM users u ORDER BY u.created_at DESC, u.id DESC")->fetchAll(PDO::FETCH_ASSOC));
+        ], $database->query("SELECT u.id, u.name, u.email, u.role, u.approval_status, u.email_verified_at, u.created_at, u.school, u.field_of_study, u.tutor_subjects, u.study_subjects, u.application_submitted_at, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = u.id) AS document_count, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = u.id AND d.kind = 'transcript') AS transcript_count FROM users u ORDER BY u.created_at DESC, u.id DESC")->fetchAll(PDO::FETCH_ASSOC));
         respond(200, ['summary' => $summary, 'recentBookings' => $recentBookings, 'users' => $users]);
     }
 
@@ -1411,7 +1530,7 @@ try {
 
     if ($action === 'my-application') {
         $userId = requireUserId();
-        $statement = $database->prepare('SELECT name, email, role, approval_status, school, field_of_study, tutor_subjects, application_submitted_at FROM users WHERE id = ?');
+        $statement = $database->prepare('SELECT name, email, role, approval_status, school, field_of_study, tutor_subjects, study_subjects, application_submitted_at, gpa FROM users WHERE id = ?');
         $statement->execute([$userId]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$row) respond(401, ['error' => 'Please log in first.']);
@@ -1422,7 +1541,9 @@ try {
             'approvalStatus' => $row['approval_status'],
             'school' => $row['school'] ?? '',
             'fieldOfStudy' => $row['field_of_study'] ?? '',
+            'gpa' => $row['gpa'] ?? '',
             'subjects' => json_decode((string) $row['tutor_subjects'], true) ?: [],
+            'studySubjects' => json_decode((string) ($row['study_subjects'] ?? ''), true) ?: [],
             'submittedAt' => isoTime($row['application_submitted_at']),
             'documents' => applicationDocuments($database, $userId),
             'availableSubjects' => TUTOR_SUBJECTS,
@@ -1431,30 +1552,39 @@ try {
 
     if ($action === 'submit-application') {
         $userId = requireUserId();
-        $roleStatement = $database->prepare('SELECT role FROM users WHERE id = ?');
+        $roleStatement = $database->prepare('SELECT role, approval_status FROM users WHERE id = ?');
         $roleStatement->execute([$userId]);
-        $role = $roleStatement->fetchColumn();
+        $applicant = $roleStatement->fetch(PDO::FETCH_ASSOC);
+        if ($applicant['approval_status'] === 'approved') respond(403, ['error' => 'Contact an admin to update an approved application.']);
+        $role = $applicant['role'];
         $isTutor = in_array($role, ['tutor', 'both'], true);
         $school = validateText($request['school'] ?? '', 120, 'School or university');
-        $fieldOfStudy = trim((string) ($request['fieldOfStudy'] ?? ''));
-        if (mb_strlen($fieldOfStudy) > 120 || ($isTutor && $fieldOfStudy === '')) {
-            respond(422, ['error' => 'Tell us what you study (up to 120 characters).']);
+        $fieldOfStudy = validateText($request['fieldOfStudy'] ?? '', 120, 'Field of study');
+        $gpa = trim((string) ($request['gpa'] ?? ''));
+        if (!is_numeric($gpa) || (float) $gpa < 0 || (float) $gpa > 4) {
+            respond(422, ['error' => 'Enter your GPA on a 0 to 4.0 scale.']);
         }
+        $transcript = $database->prepare("SELECT COUNT(*) FROM application_documents WHERE user_id = ? AND kind = 'transcript'");
+        $transcript->execute([$userId]);
+        if ((int) $transcript->fetchColumn() === 0) respond(422, ['error' => 'Upload your transcript as a PDF before submitting.']);
+        $studySubjects = array_values(array_intersect(TUTOR_SUBJECTS, is_array($request['studySubjects'] ?? null) ? $request['studySubjects'] : []));
+        if (in_array($role, ['student', 'both'], true) && !$studySubjects) respond(422, ['error' => 'Choose at least one subject you study.']);
         if ($isTutor) {
             $subjects = array_values(array_intersect(TUTOR_SUBJECTS, is_array($request['subjects'] ?? null) ? $request['subjects'] : []));
             if (!$subjects) respond(422, ['error' => 'Choose at least one topic you can tutor.']);
-            $transcript = $database->prepare("SELECT COUNT(*) FROM application_documents WHERE user_id = ? AND kind = 'transcript'");
-            $transcript->execute([$userId]);
-            if ((int) $transcript->fetchColumn() === 0) respond(422, ['error' => 'Upload your transcript as a PDF before submitting.']);
-            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, tutor_subjects = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy, json_encode($subjects, JSON_UNESCAPED_UNICODE), $userId]);
+            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, gpa = ?, tutor_subjects = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy, $gpa, json_encode($subjects, JSON_UNESCAPED_UNICODE), $userId]);
         } else {
-            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy ?: null, $userId]);
+            $database->prepare('UPDATE users SET school = ?, field_of_study = ?, gpa = ?, application_submitted_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$school, $fieldOfStudy, $gpa, $userId]);
         }
+        $database->prepare("UPDATE users SET study_subjects = ?, approval_status = CASE WHEN approval_status = 'denied' THEN 'pending' ELSE approval_status END WHERE id = ?")->execute([json_encode($studySubjects, JSON_UNESCAPED_UNICODE), $userId]);
         respond(200, ['message' => 'Application saved. We will review it and email you when you are approved.']);
     }
 
     if ($action === 'upload-application-document') {
         $userId = requireUserId();
+        $approval = $database->prepare('SELECT approval_status FROM users WHERE id = ?');
+        $approval->execute([$userId]);
+        if ($approval->fetchColumn() === 'approved') respond(403, ['error' => 'Contact an admin to update an approved application.']);
         $kind = $request['kind'] ?? '';
         if (!in_array($kind, ['transcript', 'supporting'], true)) respond(422, ['error' => 'Choose a document type.']);
         $name = (string) ($request['name'] ?? '');
@@ -1496,6 +1626,9 @@ try {
 
     if ($action === 'delete-application-document') {
         $userId = requireUserId();
+        $approval = $database->prepare('SELECT approval_status FROM users WHERE id = ?');
+        $approval->execute([$userId]);
+        if ($approval->fetchColumn() === 'approved') respond(403, ['error' => 'Contact an admin to update an approved application.']);
         $documentId = filter_var($request['documentId'] ?? null, FILTER_VALIDATE_INT);
         if (!$documentId) respond(422, ['error' => 'A valid document is required.']);
         $statement = $database->prepare('SELECT stored_name FROM application_documents WHERE id = ? AND user_id = ?');
@@ -1511,7 +1644,7 @@ try {
         requireAdmin();
         $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
         if (!$userId) respond(422, ['error' => 'A valid user is required.']);
-        $statement = $database->prepare('SELECT id, name, email, role, approval_status, school, field_of_study, tutor_subjects, application_submitted_at, created_at FROM users WHERE id = ?');
+        $statement = $database->prepare('SELECT id, name, email, role, approval_status, school, field_of_study, tutor_subjects, study_subjects, gpa, application_submitted_at, created_at FROM users WHERE id = ?');
         $statement->execute([$userId]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$row) respond(404, ['error' => 'User not found.']);
@@ -1523,7 +1656,9 @@ try {
             'approvalStatus' => $row['approval_status'],
             'school' => $row['school'] ?? '',
             'fieldOfStudy' => $row['field_of_study'] ?? '',
+            'gpa' => $row['gpa'] ?? '',
             'subjects' => json_decode((string) $row['tutor_subjects'], true) ?: [],
+            'studySubjects' => json_decode((string) ($row['study_subjects'] ?? ''), true) ?: [],
             'submittedAt' => isoTime($row['application_submitted_at']),
             'createdAt' => isoTime($row['created_at']),
             'documents' => applicationDocuments($database, $userId),
@@ -1553,22 +1688,29 @@ try {
         if (!empty($request['all'])) {
             if (!$approve) respond(422, ['error' => 'Bulk revoke is not supported.']);
             set_time_limit(120);
-            $pending = $database->query("SELECT id, name, email FROM users WHERE approval_status = 'pending' AND email_verified_at IS NOT NULL LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
-            $mark = $database->prepare("UPDATE users SET approval_status = 'approved' WHERE id = ?");
+            $pending = $database->query("SELECT id, name, email FROM users WHERE approval_status = 'pending' AND email_verified_at IS NOT NULL AND application_submitted_at IS NOT NULL AND EXISTS (SELECT 1 FROM application_documents d WHERE d.user_id = users.id AND d.kind = 'transcript') LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
+            $mark = $database->prepare("UPDATE users SET approval_status = 'approved', approved_tutor_subjects = tutor_subjects WHERE id = ?");
+            $approvedCount = 0;
             foreach ($pending as $person) {
+                if (!applicationReady($database, (int) $person['id'])) continue;
                 $mark->execute([(int) $person['id']]);
+                $approvedCount++;
                 $notify($person);
             }
-            respond(200, ['approved' => count($pending)]);
+            respond(200, ['approved' => $approvedCount]);
         }
         $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
         if (!$userId) respond(422, ['error' => 'A valid user is required.']);
-        $statement = $database->prepare("SELECT id, name, email, role FROM users WHERE id = ?");
+        $statement = $database->prepare("SELECT id, name, email, role, email_verified_at, application_submitted_at, (SELECT COUNT(*) FROM application_documents d WHERE d.user_id = users.id AND d.kind = 'transcript') AS transcript_count FROM users WHERE id = ?");
         $statement->execute([$userId]);
         $person = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$person) respond(404, ['error' => 'User not found.']);
         if ($person['role'] === 'admin') respond(422, ['error' => 'Admins are always approved.']);
+        if ($approve && !applicationReady($database, $userId)) {
+            respond(422, ['error' => 'The applicant must confirm their email and submit a complete application, including GPA, subjects and transcript, before approval.']);
+        }
         $database->prepare('UPDATE users SET approval_status = ? WHERE id = ?')->execute([$approve ? 'approved' : 'pending', $userId]);
+        if ($approve) $database->prepare('UPDATE users SET approved_tutor_subjects = tutor_subjects WHERE id = ?')->execute([$userId]);
         if (!$approve) {
             $database->prepare("UPDATE users SET is_online = 0, availability_status = 'offline' WHERE id = ? AND availability_status = 'online'")->execute([$userId]);
         }
@@ -1576,15 +1718,27 @@ try {
         respond(200, ['approvalStatus' => $approve ? 'approved' : 'pending', 'emailed' => $emailed]);
     }
 
-    if ($action === 'admin-delete-user') {
+    if ($action === 'admin-deny-application') {
         requireAdmin();
         $userId = filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
         if (!$userId) respond(422, ['error' => 'A valid user is required.']);
-        if ($userId === (int) ($_SESSION['tutorrush_user_id'] ?? 0)) {
+        $statement = $database->prepare("UPDATE users SET approval_status = 'denied', is_online = 0, availability_status = 'offline' WHERE id = ? AND role != 'admin' AND approval_status != 'approved'");
+        $statement->execute([$userId]);
+        if (!$statement->rowCount()) respond(409, ['error' => 'Only pending applications can be denied.']);
+        respond(200, ['message' => 'Application denied. The applicant can update and resubmit it.']);
+    }
+
+    if ($action === 'admin-delete-user' || $action === 'delete-account') {
+        if ($action === 'admin-delete-user') requireAdmin();
+        $userId = $action === 'delete-account' ? requireUserId() : filter_var($request['userId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$userId) respond(422, ['error' => 'A valid user is required.']);
+        if ($action === 'admin-delete-user' && $userId === (int) ($_SESSION['tutorrush_user_id'] ?? 0)) {
             respond(422, ['error' => 'You cannot delete your own admin account.']);
         }
+        if ($action === 'delete-account' && ($request['confirmation'] ?? '') !== 'DELETE') respond(422, ['error' => 'Type DELETE to confirm.']);
         $database->beginTransaction();
         try {
+            $database->prepare("UPDATE users SET is_online = 0, availability_status = 'offline' WHERE availability_status = 'busy' AND id IN (SELECT tutor_id FROM study_rooms WHERE status = 'active' AND (student_id = ? OR tutor_id = ?))")->execute([$userId, $userId]);
             $roomIds = $database->prepare('SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?');
             $roomIds->execute([$userId, $userId]);
             $storedFiles = [];
@@ -1601,6 +1755,8 @@ try {
             $database->prepare('DELETE FROM room_call_signals WHERE sender_id = ? OR room_id IN (SELECT id FROM study_rooms WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_declines WHERE tutor_id = ? OR request_id IN (SELECT id FROM match_requests WHERE student_id = ? OR tutor_id = ?)')->execute([$userId, $userId, $userId]);
             $database->prepare('DELETE FROM match_requests WHERE student_id = ? OR tutor_id = ?')->execute([$userId, $userId]);
+            $database->prepare('DELETE FROM planned_slots WHERE tutor_id = ? OR student_id = ?')->execute([$userId, $userId]);
+            $database->prepare('UPDATE feedback_reports SET resolved_by = NULL WHERE resolved_by = ?')->execute([$userId]);
             $applicationFiles = $database->prepare('SELECT stored_name FROM application_documents WHERE user_id = ?');
             $applicationFiles->execute([$userId]);
             $applicationStored = $applicationFiles->fetchAll(PDO::FETCH_COLUMN);
@@ -1625,6 +1781,10 @@ try {
         }
         foreach ($applicationStored as $storedName) {
             @unlink(applicationDirectory() . '/' . basename((string) $storedName));
+        }
+        if ($action === 'delete-account') {
+            $_SESSION = [];
+            session_destroy();
         }
         respond(200, ['message' => 'User deleted.']);
     }

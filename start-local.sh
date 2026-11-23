@@ -17,4 +17,4 @@ if lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
   exit 1
 fi
 
-exec php -S localhost:8080 -t .
+exec php -S localhost:8080 -t . dev-router.php

@@ -68,6 +68,7 @@
         <option value="waitlist">Waitlist (awaiting approval)</option>
         <option value="approved">Approved only</option>
       </select>
+      <select id="subjectFilter" aria-label="Filter by subject"><option value="">All subjects</option></select>
       <button id="approveAll" class="green" type="button" hidden>approve all confirmed on waitlist</button>
     </section>
     <p class="status" id="status" role="status"></p>
@@ -103,7 +104,7 @@
 
     function matchesRole(user, filter) {
       if (filter === 'all') return true;
-      if (filter === 'waitlist') return user.approval_status === 'pending';
+      if (filter === 'waitlist') return user.approval_status !== 'approved' && user.role !== 'admin';
       if (filter === 'approved') return user.approval_status === 'approved';
       if (filter === 'student') return user.role === 'student' || user.role === 'both';
       if (filter === 'tutor') return user.role === 'tutor' || user.role === 'both';
@@ -153,6 +154,8 @@
         add('Signed up as', detail.role);
         add('Where they study', detail.school);
         add('What they study', detail.fieldOfStudy);
+        add('GPA (4.0 scale)', detail.gpa);
+        add('Subjects studied', detail.studySubjects.join(', '));
         add('Topic specialties', detail.subjects.join(', '));
         add('Application', detail.submittedAt ? `Saved ${formatDateTime(detail.submittedAt)}` : 'Not saved yet');
         add('Joined', formatDateTime(detail.createdAt));
@@ -179,7 +182,8 @@
       const filter = roleFilter.value;
       const term = search.value.trim().toLowerCase();
       document.querySelectorAll('.stat[data-filter]').forEach((card) => card.classList.toggle('current', card.dataset.filter === filter));
-      const visible = users.filter((user) => matchesRole(user, filter) && (!term || [user.name, user.email, user.school, user.field_of_study, ...(user.subjects || [])].some((value) => (value || '').toLowerCase().includes(term))));
+      const selectedSubject = document.getElementById('subjectFilter').value;
+      const visible = users.filter((user) => matchesRole(user, filter) && (!selectedSubject || [...(user.subjects || []), ...(user.studySubjects || [])].includes(selectedSubject)) && (!term || [user.name, user.email, user.school, user.field_of_study, ...(user.subjects || []), ...(user.studySubjects || [])].some((value) => (value || '').toLowerCase().includes(term))));
       const body = document.getElementById('usersBody');
       body.replaceChildren();
       if (!visible.length) {
@@ -195,13 +199,12 @@
         if (user.role === 'admin') {
           accessCell.appendChild(element('span', 'badge active', 'ADMIN'));
         } else {
-          const pending = user.approval_status === 'pending';
-          accessCell.appendChild(element('span', `badge ${pending ? '' : 'active'}`, pending ? 'WAITLIST' : 'APPROVED'));
+          const pending = user.approval_status !== 'approved';
+          accessCell.appendChild(element('span', `badge ${pending ? '' : 'active'}`, pending ? (user.approval_status === 'denied' ? 'DENIED' : 'WAITLIST') : 'APPROVED'));
           const approvalButton = element('button', pending ? 'green' : 'plain', pending ? 'approve' : 'revoke');
           approvalButton.type = 'button';
           approvalButton.style.marginLeft = '.5rem';
           approvalButton.addEventListener('click', async () => {
-            if (pending && user.role !== 'student' && !user.transcript && !confirm(`${user.name} has not uploaded a transcript. Approve anyway?`)) return;
             approvalButton.disabled = true;
             try {
               const result = await api('admin-set-approval', { userId: user.id, approved: pending });
@@ -213,6 +216,16 @@
             }
           });
           accessCell.appendChild(approvalButton);
+          if (user.approval_status === 'pending') {
+            const deny = element('button', 'plain small', 'deny');
+            deny.type = 'button';
+            deny.addEventListener('click', async () => {
+              if (!confirm(`Deny ${user.name}'s application? They can update and resubmit it.`)) return;
+              try { await api('admin-deny-application', { userId: user.id }); await loadUsers(); }
+              catch (error) { toast(error.message); }
+            });
+            accessCell.appendChild(deny);
+          }
           if (!user.email_verified_at) accessCell.appendChild(element('small', '', ' email unconfirmed'));
         }
         const nameCell = element('td');
@@ -233,7 +246,7 @@
         const schoolCell = element('td');
         schoolCell.appendChild(element('div', '', user.school || '\u2014'));
         if (user.field_of_study) schoolCell.appendChild(element('small', '', user.field_of_study));
-        const subjectsCell = element('td', '', (user.subjects || []).length ? user.subjects.join(', ') : '\u2014');
+        const subjectsCell = element('td', '', [...(user.subjects || []), ...(user.studySubjects || [])].join(', ') || '\u2014');
         subjectsCell.style.whiteSpace = 'normal';
         subjectsCell.style.minWidth = '10rem';
         row.append(nameCell, element('td', '', user.email), element('td', '', user.role), schoolCell, subjectsCell, accessCell, element('td', '', formatDateTime(user.created_at.replace(' ', 'T') + 'Z')));
@@ -332,6 +345,7 @@
       renderUsers();
     }));
     roleFilter.addEventListener('change', renderUsers);
+    document.getElementById('subjectFilter').addEventListener('change', renderUsers);
     document.getElementById('approveAll').addEventListener('click', async () => {
       if (!confirm('Approve every waitlisted account with a confirmed email? Each person gets an email.')) return;
       try {
@@ -354,6 +368,7 @@
         }
         currentUserId = user.id;
         setupHeader(user, 'admin');
+        user.availableSubjects.forEach((subject) => document.getElementById('subjectFilter').add(new Option(subject, subject)));
         await loadUsers();
         await loadFeedback();
       } catch (error) {

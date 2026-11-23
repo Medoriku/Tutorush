@@ -24,7 +24,7 @@ async function loadSession(allowPending = false) {
     return null;
   }
   csrfToken = session.csrfToken;
-  if (session.user.approvalStatus === 'pending' && !allowPending) {
+  if (session.user.approvalStatus !== 'approved' && !allowPending) {
     location.replace('waitlist.html');
     return null;
   }
@@ -32,6 +32,26 @@ async function loadSession(allowPending = false) {
 }
 
 function setupHeader(user, current) {
+  if (user.role !== 'admin') {
+    const actions = document.querySelector('header.top .actions');
+    if (actions && !document.getElementById('deleteAccount')) {
+      const deleteButton = document.createElement('button');
+      deleteButton.id = 'deleteAccount';
+      deleteButton.type = 'button';
+      deleteButton.textContent = 'delete account';
+      deleteButton.addEventListener('click', async () => {
+        const confirmation = prompt('This permanently deletes your account, applications, rooms, files and scheduled sessions, including shared room history. Type DELETE to confirm.');
+        if (confirmation !== 'DELETE') return;
+        try {
+          await api('delete-account', { confirmation });
+          location.replace('login.html');
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+      actions.appendChild(deleteButton);
+    }
+  }
   const switcher = document.getElementById('viewSwitcher');
   if (switcher) {
     const roles = user.role === 'admin' ? ['student', 'tutor', 'admin'] : user.role === 'both' ? ['student', 'tutor'] : [current];

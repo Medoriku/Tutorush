@@ -9,6 +9,7 @@ This folder is a standalone TutorRush application. Upload the folder contents to
 - HTTPS enabled for production
 - Write access for PHP on the `storage` folder
 - Apache with `.htaccess` support, or an equivalent server rule that blocks all web access to `storage/` and `*.sqlite` files
+- Transcripts and GPAs are sensitive records. Restrict admin access, use HTTPS and encrypted backups, and define an appropriate retention policy before collecting real documents.
 
 ## First launch
 
@@ -36,4 +37,5 @@ New Google accounts use the selected role on the sign-up page (student by defaul
 
 - Do not upload a development `tutorrush.sqlite` database to a public site unless you intend to migrate its accounts and data.
 - Keep `storage/` inaccessible from the web. For Nginx, configure `location ^~ /storage/ { deny all; }`.
+- The PHP development server does not enforce `.htaccess`. Use `php -S 127.0.0.1:8081 -t . dev-router.php` for local testing, not `php -S` without the router. SMTP must be configured for verification and approval emails.
 - Confirm the site uses HTTPS before inviting users; secure session cookies are enabled automatically over HTTPS.

@@ -58,8 +58,8 @@
       <label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
       <label>Platform access<select name="role"><option value="student">Student</option><option value="tutor">Tutor</option><option value="both">Student + tutor</option></select></label>
       <label>Where do you study?<input type="text" name="school" maxlength="120" placeholder="School or university" autocomplete="organization" required></label>
-      <label id="field-label">What do you study? (optional for students)<input type="text" name="fieldOfStudy" maxlength="120" placeholder="Major or field of study"></label>
-      <p id="tutor-hint" style="display:none;margin:0;font-size:.85rem">Tutors also upload a transcript (PDF) and any supporting documents, plus the topics they can tutor, right after confirming their email.</p>
+      <label id="field-label">What do you study?<input type="text" name="fieldOfStudy" maxlength="120" placeholder="Major or field of study" required></label>
+      <p id="tutor-hint" style="margin:0;font-size:.85rem">After confirming your email, complete your application with your GPA, transcript and subjects.</p>
       <button type="submit">join the waitlist</button>
     </form>
     <p class="signup-status" id="signup-status" role="alert" aria-live="polite"></p>
@@ -74,9 +74,8 @@
     const roleSelect = signupForm.elements.role;
     function syncRoleFields() {
       const tutoring = roleSelect.value !== 'student';
-      signupForm.elements.fieldOfStudy.required = tutoring;
-      document.getElementById('tutor-hint').style.display = tutoring ? 'block' : 'none';
-      document.getElementById('field-label').firstChild.textContent = tutoring ? 'What do you study? ' : 'What do you study? (optional for students)';
+      signupForm.elements.fieldOfStudy.required = true;
+      document.getElementById('tutor-hint').textContent = tutoring ? 'After confirming your email, complete your application with your GPA, transcript, teaching subjects and supporting documents.' : 'After confirming your email, complete your application with your GPA, transcript and subjects.';
     }
     roleSelect.addEventListener('change', syncRoleFields);
     syncRoleFields();

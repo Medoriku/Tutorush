@@ -66,6 +66,7 @@
       </div>
     </section>
 
+    <section class="panel" id="schedulePanel"><h2>Upcoming sessions</h2><p id="scheduleStatus" role="status"></p><div id="mySchedule"></div><h3>Book a planned session</h3><label for="scheduleSubject">Subject</label><select id="scheduleSubject"></select><div id="availableSlots"></div></section>
     <section class="panel">
       <h2>Your study rooms</h2>
       <p>Rooms stay here after a session ends so you can look back at the chat and files.</p>
@@ -74,6 +75,7 @@
   </main>
 
   <script src="app.js"></script>
+  <script src="schedule.js"></script>
   <script>
     const DRAFT_KEY = 'tutorrush-student-draft';
     const status = document.getElementById('status');
@@ -244,6 +246,8 @@
       if (!user) return;
       setupHeader(user, 'student');
       initFeedback();
+      initSchedule(user, 'student');
+      document.getElementById('subject').replaceChildren(...user.availableSubjects.map((subject) => new Option(subject, subject)));
       restoreDraft();
       await refreshRooms();
       const { request } = await api('my-match-request');
